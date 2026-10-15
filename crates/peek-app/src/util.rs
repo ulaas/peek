@@ -69,3 +69,8 @@ mod tests {
         assert_eq!(civil(11_016), (2000, 2, 29));
     }
 }
+
+/// Current text on the OS clipboard, if any.
+pub fn read_clipboard_text() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok().filter(|t| !t.is_empty())
+}

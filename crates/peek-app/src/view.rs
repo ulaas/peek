@@ -2,6 +2,7 @@
 //! texture, translates local input, draws the remote cursor locally and
 //! hosts the floating session toolbar.
 
+use crate::grab::{GrabMode, GrabbedKey};
 use crate::icons;
 use crate::keymap;
 use crate::theme;
@@ -77,6 +78,8 @@ pub struct SessionView {
     cursor: Option<RemoteCursor>,
     focused: bool,
     sent_mods: egui::Modifiers,
+    grab_ctrl: bool,
+    grab_alt: bool,
     wheel: Vec2,
     pointer: Option<(u32, u32)>,
     resize_pending: Option<((u32, u32), Instant)>,
@@ -90,7 +93,15 @@ pub struct SessionView {
     form_user: String,
     form_password: String,
     form_remember: bool,
+    /// Credentials of the current attempt, kept in memory for auto-reconnect.
+    last_creds: Option<Credentials>,
+    ever_connected: bool,
+    /// Next automatic reconnect: when, and which attempt it is.
+    reconnect: Option<(Instant, u32)>,
+    attempts: u32,
 }
+
+const RECONNECT_DELAYS: [u64; 5] = [1, 2, 4, 8, 16];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CursorMode {
@@ -119,6 +130,8 @@ impl SessionView {
             cursor: None,
             focused: false,
             sent_mods: egui::Modifiers::NONE,
+            grab_ctrl: false,
+            grab_alt: false,
             wheel: Vec2::ZERO,
             pointer: None,
             resize_pending: None,
@@ -130,6 +143,10 @@ impl SessionView {
             last_clipboard: None,
             form_password: String::new(),
             form_remember: true,
+            last_creds: None,
+            ever_connected: false,
+            reconnect: None,
+            attempts: 0,
         }
     }
 
@@ -151,6 +168,7 @@ impl SessionView {
         keyboard_layout: u32,
     ) {
         self.disconnect();
+        self.last_creds = Some(credentials.clone());
         let (w, h) = (desired.0.max(640), desired.1.max(480));
         let (handle, sctx) = new_session(w, h);
         let repaint = ctx.clone();
@@ -200,12 +218,14 @@ impl SessionView {
         self.texture = None;
         self.cursor = None;
         self.cursor_mode = CursorMode::Local;
+        self.rates = Rates::default();
         self.resize_sent = (w, h);
         self.phase = Phase::Connecting("Starting".into());
         self.handle = Some(handle);
     }
 
     pub fn disconnect(&mut self) {
+        self.reconnect = None;
         if let Some(h) = self.handle.take() {
             h.send(SessionCommand::Disconnect);
         }
@@ -230,7 +250,10 @@ impl SessionView {
                 SessionEvent::Connected { width, height, detail } => {
                     self.remote = (width, height);
                     self.detail = detail;
+                    tracing::info!(session = self.id, "connected");
                     self.phase = Phase::Connected;
+                    self.ever_connected = true;
+                    self.attempts = 0;
                     actions.push(ViewAction::Connected);
                     if self.options.auto_record {
                         actions.push(ViewAction::StartRecording);
@@ -259,6 +282,7 @@ impl SessionView {
                     self.phase = Phase::NeedCredentials { message: Some(message) };
                 }
                 SessionEvent::Disconnected { reason, error } => {
+                    tracing::info!(session = self.id, ?reason, error, "disconnected");
                     self.handle = None;
                     if let Some(r) = self.recorder.take() {
                         if let Ok(info) = r.stop() {
@@ -267,6 +291,13 @@ impl SessionView {
                                 ToastKind::Success,
                             ));
                         }
+                    }
+                    // Dropped connections come back on their own; logoffs do not.
+                    if error && self.ever_connected && (self.attempts as usize) < RECONNECT_DELAYS.len() {
+                        let delay = Duration::from_secs(RECONNECT_DELAYS[self.attempts as usize]);
+                        self.attempts += 1;
+                        self.reconnect = Some((Instant::now() + delay, self.attempts));
+                        ctx.request_repaint_after(delay);
                     }
                     self.phase = Phase::Disconnected { reason, error };
                 }
@@ -344,9 +375,9 @@ impl SessionView {
             Some(t) if now.duration_since(t) >= Duration::from_millis(500) => {
                 let dt = now.duration_since(t).as_secs_f64();
                 let blend = |old: f64, new: f64| old * 0.4 + new * 0.6;
-                self.rates.down = blend(self.rates.down, (cur.0 - self.rates.prev.0) as f64 / dt);
-                self.rates.up = blend(self.rates.up, (cur.1 - self.rates.prev.1) as f64 / dt);
-                self.rates.ups = blend(self.rates.ups, (cur.2 - self.rates.prev.2) as f64 / dt);
+                self.rates.down = blend(self.rates.down, cur.0.saturating_sub(self.rates.prev.0) as f64 / dt);
+                self.rates.up = blend(self.rates.up, cur.1.saturating_sub(self.rates.prev.1) as f64 / dt);
+                self.rates.ups = blend(self.rates.ups, cur.2.saturating_sub(self.rates.prev.2) as f64 / dt);
                 self.rates.at = Some(now);
                 self.rates.prev = cur;
             }
@@ -414,7 +445,38 @@ impl SessionView {
         self.input(InputEvent::Key { code, down: false });
     }
 
-    fn handle_input(&mut self, ui: &egui::Ui, img: ERect, hovered: bool, actions: &mut Vec<ViewAction>) {
+    fn handle_input(
+        &mut self,
+        ui: &egui::Ui,
+        img: ERect,
+        hovered: bool,
+        grabbed: &[GrabbedKey],
+        grab: GrabMode,
+        actions: &mut Vec<ViewAction>,
+    ) {
+        // Keys captured by the OS-level grab. In full-grab mode these are the
+        // only keyboard input; egui sees nothing.
+        if self.focused {
+            for &(code, down) in grabbed {
+                match code {
+                    KeyCode::ControlLeft | KeyCode::ControlRight => self.grab_ctrl = down,
+                    KeyCode::AltLeft | KeyCode::AltRight => self.grab_alt = down,
+                    _ => {}
+                }
+                if down && code == KeyCode::Enter && self.grab_ctrl && self.grab_alt {
+                    actions.push(ViewAction::ToggleFullscreen);
+                    continue;
+                }
+                if down && code == KeyCode::KeyV && self.grab_ctrl && !self.grab_alt {
+                    // Offer the local clipboard first so the paste gets current text.
+                    if let Some(t) = util::read_clipboard_text() {
+                        self.offer_clipboard(t);
+                    }
+                }
+                self.input(InputEvent::Key { code, down });
+            }
+        }
+        let keyboard_via_egui = self.focused && grab != GrabMode::All;
         let events = ui.input(|i| i.events.clone());
         let (wheel_threshold, rdp) = match self.endpoint.protocol {
             Protocol::Rdp => (15.0, true),
@@ -434,7 +496,7 @@ impl SessionView {
                     }
                 }
                 Event::PointerButton { pos, button, pressed, modifiers } if hovered || !pressed => {
-                    if self.focused {
+                    if keyboard_via_egui {
                         self.sync_modifiers(modifiers);
                     }
                     let b = match button {
@@ -470,7 +532,7 @@ impl SessionView {
                         self.input(InputEvent::Wheel { dx, dy, x, y });
                     }
                 }
-                Event::Key { key, physical_key, pressed, modifiers, .. } if self.focused => {
+                Event::Key { key, physical_key, pressed, modifiers, .. } if keyboard_via_egui => {
                     if pressed && modifiers.ctrl && modifiers.alt && key == egui::Key::Enter {
                         actions.push(ViewAction::ToggleFullscreen);
                         continue;
@@ -480,12 +542,12 @@ impl SessionView {
                         self.input(InputEvent::Key { code, down: pressed });
                     }
                 }
-                Event::ModifiersChanged(m) if self.focused => self.sync_modifiers(m),
-                Event::Text(t) if self.focused => self.input(InputEvent::Text(t)),
+                Event::ModifiersChanged(m) if keyboard_via_egui => self.sync_modifiers(m),
+                Event::Text(t) if keyboard_via_egui => self.input(InputEvent::Text(t)),
                 // egui turns these shortcuts into clipboard events and drops the key.
-                Event::Copy if self.focused => self.tap(KeyCode::KeyC),
-                Event::Cut if self.focused => self.tap(KeyCode::KeyX),
-                Event::Paste(text) if self.focused => {
+                Event::Copy if keyboard_via_egui => self.tap(KeyCode::KeyC),
+                Event::Cut if keyboard_via_egui => self.tap(KeyCode::KeyX),
+                Event::Paste(text) if keyboard_via_egui => {
                     if self.options.clipboard {
                         self.last_clipboard = Some(text.clone());
                         self.send(SessionCommand::ClipboardText(text));
@@ -495,10 +557,33 @@ impl SessionView {
                 _ => {}
             }
         }
-        if self.focused {
+        if keyboard_via_egui {
             let m = ui.input(|i| i.modifiers);
             self.sync_modifiers(m);
         }
+    }
+
+    /// Offer local clipboard text to the server if it changed.
+    pub fn offer_clipboard(&mut self, text: String) {
+        if self.options.clipboard && self.is_live() && self.last_clipboard.as_deref() != Some(text.as_str()) {
+            self.last_clipboard = Some(text.clone());
+            self.send(SessionCommand::ClipboardText(text));
+        }
+    }
+
+    /// Credentials to reconnect with, once the backoff delay has passed.
+    pub fn take_due_reconnect(&mut self) -> Option<Credentials> {
+        match self.reconnect {
+            Some((at, _)) if Instant::now() >= at => {
+                self.reconnect = None;
+                self.last_creds.clone()
+            }
+            _ => None,
+        }
+    }
+
+    pub fn is_connected(&self) -> bool {
+        matches!(self.phase, Phase::Connected)
     }
 
     /// Resize the remote desktop to the window, debounced.
@@ -529,7 +614,7 @@ impl SessionView {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, actions: &mut Vec<ViewAction>) {
+    pub fn show(&mut self, ui: &mut egui::Ui, grabbed: &[GrabbedKey], grab: GrabMode, actions: &mut Vec<ViewAction>) {
         let ctx = ui.ctx().clone();
         let area = ui.available_rect_before_wrap();
         ui.painter().rect_filled(area, 0.0, theme::canvas(ui.visuals().dark_mode));
@@ -567,6 +652,15 @@ impl SessionView {
                         if let Some(r) = reason {
                             ui.add_space(4.0);
                             ui.add(egui::Label::new(egui::RichText::new(r).weak()).wrap());
+                        }
+                        if let Some((at, attempt)) = self.reconnect {
+                            let secs = at.saturating_duration_since(Instant::now()).as_secs() + 1;
+                            ui.add_space(6.0);
+                            ui.label(egui::RichText::new(format!("Reconnecting in {secs} s (attempt {attempt} of {})", RECONNECT_DELAYS.len())).color(theme::WARN));
+                            ui.ctx().request_repaint_after(Duration::from_millis(250));
+                            if ui.small_button("Stop trying").clicked() {
+                                self.reconnect = None;
+                            }
                         }
                         ui.add_space(14.0);
                         ui.horizontal(|ui| {
@@ -610,6 +704,8 @@ impl SessionView {
         } else if self.focused {
             self.input(InputEvent::ReleaseAll);
             self.sent_mods = egui::Modifiers::NONE;
+            self.grab_ctrl = false;
+            self.grab_alt = false;
         }
         self.focused = focused_now;
 
@@ -622,7 +718,7 @@ impl SessionView {
             painter.image(tex.id(), img, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
 
-        self.handle_input(ui, img, hovered, actions);
+        self.handle_input(ui, img, hovered, grabbed, grab, actions);
 
         // Draw the remote cursor ourselves: no round trip, no lag.
         if hovered && img.contains(hover_pos.unwrap_or_default()) {

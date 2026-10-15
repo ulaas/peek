@@ -4,7 +4,10 @@
 //! every graphics update, this driver copies only the updated region into
 //! the shared framebuffer, so small updates stay cheap at any resolution.
 
+mod clipboard;
+
 use anyhow::Context;
+use clipboard::ClipboardLink;
 use ironrdp::connector::{self, ConnectionResult, Credentials, DesktopSize};
 use ironrdp::core::WriteBuf;
 use ironrdp::displaycontrol::client::DisplayControlClient;
@@ -101,7 +104,12 @@ fn sha256_hex(bytes: &[u8]) -> String {
     sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
 }
 
-async fn connect(req: &ConnectRequest, width: u16, height: u16, ctx: &SessionContext) -> anyhow::Result<(ConnectionResult, UpgradedFramed)> {
+async fn connect(
+    req: &ConnectRequest,
+    width: u16,
+    height: u16,
+    ctx: &SessionContext,
+) -> anyhow::Result<(ConnectionResult, UpgradedFramed, Option<ClipboardLink>)> {
     let addr = req.endpoint.socket_addr();
     ctx.events.status(format!("Connecting to {addr}"));
     let stream = tokio::time::timeout(Duration::from_secs(15), TcpStream::connect(&addr))
@@ -114,6 +122,14 @@ async fn connect(req: &ConnectRequest, width: u16, height: u16, ctx: &SessionCon
     let mut framed = ironrdp_tokio::TokioFramed::new(stream);
     let mut connector = connector::ClientConnector::new(connector_config(req, width, height), client_addr)
         .with_static_channel(ironrdp::dvc::DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new()))));
+
+    let clip = if req.options.clipboard && !req.options.view_only {
+        let (backend, link) = clipboard::new();
+        connector = connector.with_static_channel(ironrdp::cliprdr::CliprdrClient::new(Box::new(backend)));
+        Some(link)
+    } else {
+        None
+    };
 
     #[cfg(feature = "audio")]
     if req.options.audio {
@@ -142,7 +158,7 @@ async fn connect(req: &ConnectRequest, width: u16, height: u16, ctx: &SessionCon
     let result = ironrdp_tokio::connect_finalize(upgraded, connector, &mut framed, &mut NoNetwork, host.into(), public_key, None)
         .await
         .map_err(rdp_err)?;
-    Ok((result, framed))
+    Ok((result, framed, clip))
 }
 
 /// Turn IronRDP errors into readable messages.
@@ -169,8 +185,8 @@ pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result
     let clamp = |v: u32| MonitorLayoutEntry::adjust_display_size(v, v).0 as u16;
     let (mut width, mut height) = (clamp(req.options.width), clamp(req.options.height));
     loop {
-        let (result, framed) = connect(&req, width, height, &ctx).await?;
-        match active_session(&req, framed, result, &mut ctx).await? {
+        let (result, framed, clip) = connect(&req, width, height, &ctx).await?;
+        match active_session(&req, framed, result, clip, &mut ctx).await? {
             Flow::Reconnect { width: w, height: h } => (width, height) = (w, h),
             Flow::Done(reason) => return Ok(reason),
         }
@@ -245,6 +261,7 @@ async fn active_session(
     req: &ConnectRequest,
     framed: UpgradedFramed,
     result: ConnectionResult,
+    clip: Option<ClipboardLink>,
     ctx: &mut SessionContext,
 ) -> anyhow::Result<Flow> {
     let (mut reader, mut writer) = split_tokio_framed(framed);
@@ -310,7 +327,13 @@ async fn active_session(
                         }
                     }
                 }
-                Some(SessionCommand::ClipboardText(_)) => Vec::new(), // TODO: CLIPRDR
+                Some(SessionCommand::ClipboardText(text)) => match &clip {
+                    Some(link) => match link.offer(&mut stage, text).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        Some(frame) if !frame.is_empty() => vec![ActiveStageOutput::ResponseFrame(frame)],
+                        _ => Vec::new(),
+                    },
+                    None => Vec::new(),
+                },
                 Some(SessionCommand::Refresh) => Vec::new(),
             },
         };
@@ -380,6 +403,17 @@ async fn active_session(
                 }
                 ActiveStageOutput::Terminate(reason) => break 'outer reason.description(),
                 _ => {}
+            }
+        }
+
+        if let Some(link) = &clip {
+            let (frames, texts) = link.drain(&mut stage).map_err(|e| anyhow::anyhow!("{e}"))?;
+            for frame in frames {
+                ctx.stats.add_out(frame.len());
+                writer.write_all(&frame).await.context("connection lost")?;
+            }
+            for t in texts {
+                ctx.events.send(SessionEvent::ClipboardText(t));
             }
         }
     };

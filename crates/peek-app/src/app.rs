@@ -1,3 +1,4 @@
+use crate::grab::{Grab, GrabMode};
 use crate::icons;
 use crate::keymap;
 use crate::player::PlayerView;
@@ -89,6 +90,8 @@ pub struct PeekApp {
     desired_px: (u32, u32),
     confirm_delete: Option<Uuid>,
     cert_warning: Option<CertWarning>,
+    grab: Grab,
+    window_focused: bool,
 }
 
 /// Credentials are keyed by endpoint so quick connect and saved
@@ -166,6 +169,8 @@ impl PeekApp {
             desired_px: (1920, 1080),
             confirm_delete: None,
             cert_warning: None,
+            grab: Grab::new(&cc.egui_ctx),
+            window_focused: true,
         };
         match arg {
             Some(a) if a.to_lowercase().ends_with(".peekrec") => app.open_recording(PathBuf::from(a)),
@@ -920,6 +925,9 @@ impl PeekApp {
                     }
                 });
                 changed |= ui.checkbox(&mut s.show_stats, "Show connection statistics in new sessions").changed();
+                changed |= ui
+                    .checkbox(&mut s.grab_keyboard, "Send system keys (Windows key, Alt+Tab, Print Screen) to the remote computer")
+                    .changed();
                 ui.add_space(8.0);
                 ui.label(RichText::new("Recordings").strong());
                 let dir = self.store.settings.recordings_dir.clone().unwrap_or_else(|| self.store.paths.recordings.clone());
@@ -1192,6 +1200,13 @@ impl eframe::App for PeekApp {
         for (id, a) in actions {
             self.handle_action(&ctx, id, a);
         }
+        for tab in &mut self.tabs {
+            if let Tab::Session(s) = tab {
+                if let Some(creds) = s.take_due_reconnect() {
+                    s.connect(&self.rt, &ctx, creds, self.desired_px, self.keyboard_layout);
+                }
+            }
+        }
 
         // Dropped recordings open in the player.
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
@@ -1204,6 +1219,34 @@ impl eframe::App for PeekApp {
         }
 
         self.shortcuts(&ctx);
+
+        // Keyboard grab follows focus: only while Peek is in front and a
+        // connected session has keyboard focus.
+        let window_focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let grab_mode = match self.active.and_then(|i| self.tabs.get(i)) {
+            Some(Tab::Session(s))
+                if self.store.settings.grab_keyboard
+                    && window_focused
+                    && s.has_keyboard_focus()
+                    && s.is_connected()
+                    && !s.options.view_only =>
+            {
+                if s.endpoint.protocol == Protocol::Rdp { GrabMode::All } else { GrabMode::System }
+            }
+            _ => GrabMode::Off,
+        };
+        self.grab.set_mode(grab_mode);
+        let grabbed = self.grab.drain();
+
+        // Coming back to Peek: hand the current clipboard to the active session.
+        if window_focused && !self.window_focused {
+            if let Some(text) = util::read_clipboard_text() {
+                if let Some(s) = self.active_session_mut() {
+                    s.offer_clipboard(text);
+                }
+            }
+        }
+        self.window_focused = window_focused;
 
         if !self.fullscreen {
             self.top_bar(ui);
@@ -1219,7 +1262,7 @@ impl eframe::App for PeekApp {
             match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 Some(Tab::Session(s)) => {
                     view_id = s.id;
-                    s.show(ui, &mut view_actions);
+                    s.show(ui, &grabbed, grab_mode, &mut view_actions);
                 }
                 Some(Tab::Player(p)) => p.show(ui),
                 None => self.home(ui),
