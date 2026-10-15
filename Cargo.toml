@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/peek-core"]
+members = ["crates/peek-core", "crates/peek-vnc"]
 
 
 [workspace.package]

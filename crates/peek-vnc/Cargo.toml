@@ -1,0 +1,19 @@
+[package]
+name = "peek-vnc"
+description = "RFB (VNC) client backend for Peek"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+peek-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+flate2.workspace = true
+des = "0.9"
+zune-jpeg = "0.5"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
