@@ -116,7 +116,7 @@ fn msg_set_desktop_size(w: u32, h: u32, screen_id: u32) -> Vec<u8> {
 
 /// Run a VNC session until it ends. Errors are returned to the caller, which
 /// reports them to the UI.
-pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result<()> {
+pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result<Option<String>> {
     let addr = req.endpoint.socket_addr();
     ctx.events.status(format!("Connecting to {addr}"));
     let stream = tokio::time::timeout(Duration::from_secs(15), TcpStream::connect(&addr))
@@ -199,7 +199,7 @@ pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result
     reader.abort();
     drop(tx);
     let _ = writer.await;
-    result
+    result.map(|()| None)
 }
 
 async fn read_loop<R: AsyncRead + Unpin>(

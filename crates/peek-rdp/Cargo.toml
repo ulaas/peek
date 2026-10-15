@@ -1,0 +1,23 @@
+[package]
+name = "peek-rdp"
+description = "RDP client backend for Peek, built on IronRDP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["audio"]
+audio = ["dep:ironrdp-rdpsnd-native"]
+
+[dependencies]
+peek-core.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+ironrdp = { version = "0.17", features = ["core", "connector", "session", "graphics", "input", "pdu", "svc", "dvc", "displaycontrol", "rdpsnd"] }
+ironrdp-tokio = "0.10"
+ironrdp-tls = { version = "0.2", features = ["rustls-ring"] }
+ironrdp-error = "0.2"
+ironrdp-rdpsnd-native = { version = "0.7", optional = true }
+x509-cert = "0.2"
+sha2 = "0.10"
