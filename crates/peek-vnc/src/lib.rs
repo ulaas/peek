@@ -224,6 +224,14 @@ async fn read_loop<R: AsyncRead + Unpin>(
                     let h = r.u16().await? as u32;
                     let enc = r.i32().await?;
                     let rect = Rect::new(x, y, w, h);
+                    // Pixel-carrying rectangles must lie on screen; this also bounds
+                    // every allocation a hostile server can cause.
+                    if enc >= 0 {
+                        let (fw, fh) = frame.size();
+                        if x + w > fw || y + h > fh {
+                            bail!("server sent a {w}x{h} rectangle at {x},{y} outside the {fw}x{fh} screen");
+                        }
+                    }
                     match enc {
                         ENC_RAW => {
                             r.read_into(w as usize * h as usize * 4, &mut buf).await?;
@@ -245,8 +253,14 @@ async fn read_loop<R: AsyncRead + Unpin>(
                         }
                         ENC_ZRLE => {
                             let len = r.u32().await? as usize;
+                            // zlib never expands beyond ~0.1%; anything far above raw size is bogus.
+                            if len > (w as usize * h as usize * 4 + 1024) * 2 {
+                                bail!("ZRLE payload of {len} bytes for a {w}x{h} rectangle");
+                            }
                             r.read_into(len, &mut buf).await?;
-                            inflate(&mut zrle_z, &buf, None, &mut inflated)?;
+                            // Upper bound: every tile raw (1 + 3 bytes/pixel) plus a full palette header.
+                            let tiles = (w as usize).div_ceil(64) * (h as usize).div_ceil(64);
+                            inflate(&mut zrle_z, &buf, None, w as usize * h as usize * 4 + tiles * 400, &mut inflated)?;
                             zrle(&inflated, w, h, &mut pixels)?;
                             frame.write().put_rect(rect, &pixels);
                         }
@@ -255,6 +269,9 @@ async fn read_loop<R: AsyncRead + Unpin>(
                             frame.write().put_rect(rect, &pixels);
                         }
                         ENC_PSEUDO_CURSOR => {
+                            if w > 512 || h > 512 {
+                                bail!("server sent an oversized {w}x{h} cursor");
+                            }
                             let (wu, hu) = (w as usize, h as usize);
                             let px = r.vec(wu * hu * 4).await?;
                             let mask = r.vec(wu.div_ceil(8) * hu).await?;

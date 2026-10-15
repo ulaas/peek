@@ -69,9 +69,9 @@ impl<'a> Bytes<'a> {
     }
 }
 
-/// Inflate exactly `out_len` bytes (or, if `None`, everything available) from
-/// `input` with a persistent zlib stream.
-pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, out: &mut Vec<u8>) -> anyhow::Result<()> {
+/// Inflate exactly `out_len` bytes (or, if `None`, everything available, up
+/// to `max` bytes) from `input` with a persistent zlib stream.
+pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, max: usize, out: &mut Vec<u8>) -> anyhow::Result<()> {
     out.clear();
     let mut consumed = 0usize;
     match out_len {
@@ -82,8 +82,9 @@ pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, out: &m
         if out_len.is_some_and(|n| out.len() >= n) {
             break;
         }
+        ensure!(out.len() <= max, "compressed data expands beyond {max} bytes");
         if out.len() == out.capacity() {
-            out.reserve(out.len().max(4096));
+            out.reserve(out.len().max(4096).min(max + 1 - out.len()));
         }
         let (bi, bo) = (z.total_in(), z.total_out());
         let status = z.decompress_vec(&input[consumed..], out, FlushDecompress::Sync).context("zlib error")?;
@@ -255,6 +256,8 @@ pub async fn hextile<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, ou
 pub async fn rre<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Result<()> {
     let (w, h) = (w as usize, h as usize);
     let n = r.u32().await? as usize;
+    // Every subrectangle covers at least one pixel.
+    ensure!(n <= w * h, "RRE claims {n} subrectangles for {w}x{h}");
     let mut px = [0u8; 4];
     r.exact(&mut px).await?;
     out.clear();
@@ -359,7 +362,7 @@ impl Tight {
         } else {
             let len = r.compact_len().await?;
             r.read_into(len, &mut self.zbuf).await?;
-            inflate(&mut self.zs[stream], &self.zbuf, Some(raw_len), &mut self.raw)?;
+            inflate(&mut self.zs[stream], &self.zbuf, Some(raw_len), raw_len, &mut self.raw)?;
         }
 
         let data = &self.raw;
@@ -467,7 +470,7 @@ mod tests {
             let mut comp = Vec::with_capacity(256);
             c.compress_vec(msg, &mut comp, FlushCompress::Sync).unwrap();
             let mut out = vec![];
-            inflate(&mut z, &comp, Some(msg.len()), &mut out).unwrap();
+            inflate(&mut z, &comp, Some(msg.len()), msg.len(), &mut out).unwrap();
             assert_eq!(out, msg);
         }
     }
@@ -489,5 +492,40 @@ mod tests {
         let px = [1, 2, 3, 0, 4, 5, 6, 0];
         let rgba = cursor_rgba(&px, &[0b1000_0000], 2, 1);
         assert_eq!(rgba, vec![1, 2, 3, 255, 4, 5, 6, 0]);
+    }
+
+    /// Tiny deterministic PRNG so the test needs no extra crates.
+    fn rng(seed: &mut u64) -> u64 {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        *seed
+    }
+
+    /// Random input must produce errors, never panics or runaway allocations.
+    #[test]
+    fn decoders_survive_garbage() {
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut out = Vec::new();
+        for i in 0..3000 {
+            let len = (rng(&mut seed) % 600) as usize;
+            let mut data: Vec<u8> = (0..len).map(|_| rng(&mut seed) as u8).collect();
+            // Bias some inputs toward valid ZRLE/Tight headers.
+            if i % 3 == 0 && !data.is_empty() {
+                data[0] = [0u8, 1, 2, 5, 16, 128, 130, 200, 0x80, 0x90, 0x40, 0x50][i % 12];
+            }
+            let w = (rng(&mut seed) % 80 + 1) as u32;
+            let h = (rng(&mut seed) % 80 + 1) as u32;
+            let _ = zrle(&data, w, h, &mut out);
+            rt.block_on(async {
+                let mut r = Reader::new(&data[..], None);
+                let _ = hextile(&mut r, w, h, &mut out).await;
+                let mut r = Reader::new(&data[..], None);
+                let _ = rre(&mut r, w, h, &mut out).await;
+                let mut r = Reader::new(&data[..], None);
+                let _ = Tight::default().decode(&mut r, w, h, &mut out).await;
+            });
+        }
     }
 }
