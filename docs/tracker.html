@@ -1,0 +1,216 @@
+<title>Peek Build Log</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; status strip up top, milestone rail, then reference sections and a dated log. */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --fg:#17202b; --muted:#5a6878; --line:#d9dfe6;
+  --accent:#2a6fdb; --accent-soft:#e3edfc;
+  --ok:#1d8a5b; --ok-soft:#dcf2e7; --warn:#b26a00; --warn-soft:#fbefd9; --idle:#7b8794; --idle-soft:#eceff2;
+  --f-display:"Familjen Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141a; --surface:#161d26; --fg:#e4e9ef; --muted:#93a1b1; --line:#26313d;
+  --accent:#6aa4ff; --accent-soft:#1a2a44;
+  --ok:#4cc38a; --ok-soft:#14301f; --warn:#f0b04a; --warn-soft:#352711; --idle:#8795a5; --idle-soft:#1d252f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141a; --surface:#161d26; --fg:#e4e9ef; --muted:#93a1b1; --line:#26313d;
+  --accent:#6aa4ff; --accent-soft:#1a2a44;
+  --ok:#4cc38a; --ok-soft:#14301f; --warn:#f0b04a; --warn-soft:#352711; --idle:#8795a5; --idle-soft:#1d252f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 80px}
+main{max-width:920px;margin:0 auto;display:flex;flex-direction:column;gap:48px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(34px,6vw,52px);letter-spacing:-.02em}
+h2{font-size:24px;letter-spacing:-.01em}
+h3{font-size:16px}
+p{margin:0;max-width:68ch}
+code,.mono{font-family:var(--f-mono);font-size:.88em}
+.eyebrow{font:500 12px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-direction:column;gap:14px}
+.lede{font-size:18px;color:var(--muted);max-width:60ch}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.strip div{background:var(--surface);padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+.strip b{font:600 22px var(--f-display);font-variant-numeric:tabular-nums}
+.strip span{font-size:12px;color:var(--muted)}
+.bar{height:6px;border-radius:3px;background:var(--idle-soft);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.ms{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.ms details{border-bottom:1px solid var(--line)}
+.ms summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;padding:14px 4px}
+.ms summary::-webkit-details-marker{display:none}
+.ms summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ms .id{font:500 13px var(--f-mono);color:var(--muted)}
+.ms .t{font-weight:600}
+.ms .body{padding:0 4px 18px 60px;display:flex;flex-direction:column;gap:10px}
+.ms ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.ms li.done{color:var(--muted)}
+.ms li.done::marker{content:"✓  ";color:var(--ok)}
+.pill{font:500 12px var(--f-mono);padding:3px 9px;border-radius:99px;white-space:nowrap}
+.pill.done{background:var(--ok-soft);color:var(--ok)}
+.pill.active{background:var(--warn-soft);color:var(--warn)}
+.pill.todo{background:var(--idle-soft);color:var(--idle)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card ul{margin:0;padding-left:18px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.card ul b{color:var(--fg);font-weight:500}
+.tag{font:500 11px var(--f-mono);color:var(--accent);background:var(--accent-soft);padding:2px 7px;border-radius:4px;align-self:flex-start}
+.diagram{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+.diagram svg{display:block;min-width:640px;width:100%;height:auto}
+.diagram text{font-family:var(--f-mono);font-size:12px;fill:var(--fg)}
+.diagram .sub{fill:var(--muted);font-size:10.5px}
+.diagram rect{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.diagram rect.hl{fill:var(--accent-soft);stroke:var(--accent)}
+.diagram path{stroke:var(--muted);stroke-width:1.2;fill:none}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tw{overflow-x:auto}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 12px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.log{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line);margin-left:6px}
+.log article{position:relative;padding:0 0 22px 22px;display:flex;flex-direction:column;gap:6px}
+.log article::before{content:"";position:absolute;left:-7px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.log time{font:500 12px var(--f-mono);color:var(--muted)}
+.log ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .6s ease}}
+@media (max-width:520px){.ms .body{padding-left:4px}.ms summary{grid-template-columns:36px 1fr}.ms summary .pill{grid-column:2;justify-self:start}}
+</style>
+
+<main>
+<header>
+  <span class="eyebrow">Remote desktop client · Rust + egui · local repo E:\source\private\peek</span>
+  <h1>Peek</h1>
+  <p class="lede">A fast, quiet remote desktop client. RDP first, VNC second, SSH later. The window stays out of the way until you need it.</p>
+  <div class="strip" id="strip"></div>
+  <div class="bar" aria-hidden="true"><i id="barfill" style="width:0"></i></div>
+</header>
+
+<section>
+  <span class="eyebrow">Milestones</span>
+  <h2>Roadmap</h2>
+  <div class="ms" id="milestones"></div>
+</section>
+
+<section>
+  <span class="eyebrow">How it fits together</span>
+  <h2>Architecture</h2>
+  <p>Each protocol backend runs on its own Tokio task and writes decoded pixels into a shared framebuffer, marking dirty rectangles. The UI thread only uploads the dirty rectangles to the GPU texture each frame, so a blinking cursor costs a few hundred bytes of upload, not a full 4K frame. The recorder reads the same dirty-rect stream, which keeps recordings small and lossless.</p>
+  <div class="diagram">
+    <svg viewBox="0 0 760 300" role="img" aria-label="Architecture: protocol backends write to a shared framebuffer; the egui UI and the recorder read dirty rectangles from it; input flows back from UI to backends.">
+      <rect x="20" y="30" width="170" height="54" rx="8"/><text x="34" y="54">peek-rdp</text><text class="sub" x="34" y="72">IronRDP · TLS · CredSSP</text>
+      <rect x="20" y="104" width="170" height="54" rx="8"/><text x="34" y="128">peek-vnc</text><text class="sub" x="34" y="146">own RFB 3.8 client</text>
+      <rect x="20" y="178" width="170" height="54" rx="8"/><text x="34" y="202">peek-ssh (later)</text><text class="sub" x="34" y="220">russh · terminal</text>
+      <rect class="hl" x="290" y="92" width="190" height="78" rx="8"/><text x="306" y="118">peek-core</text><text class="sub" x="306" y="136">Framebuffer + dirty rects</text><text class="sub" x="306" y="152">Session trait · events · input</text>
+      <rect x="570" y="30" width="170" height="54" rx="8"/><text x="584" y="54">peek (egui app)</text><text class="sub" x="584" y="72">partial texture upload</text>
+      <rect x="570" y="120" width="170" height="54" rx="8"/><text x="584" y="144">peek-record</text><text class="sub" x="584" y="162">.peekrec · MP4 export</text>
+      <rect x="570" y="210" width="170" height="54" rx="8"/><text x="584" y="234">peek-store</text><text class="sub" x="584" y="252">profiles · OS keyring</text>
+      <path d="M190 57 C240 57 240 115 290 115"/><path d="M190 131 L290 131"/><path d="M190 205 C240 205 240 150 290 150"/>
+      <path d="M480 115 C525 115 525 57 570 57"/><path d="M480 140 L570 147"/>
+      <path d="M570 237 C520 237 520 165 480 160" stroke-dasharray="4 4"/>
+      <text class="sub" x="210" y="280">pixels in →</text><text class="sub" x="500" y="280">← input, clipboard, resize out</text>
+    </svg>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Scope</span>
+  <h2>What Peek will do</h2>
+  <div class="grid2">
+    <div class="card"><span class="tag">RDP · main</span><h3>Windows hosts, done properly</h3><ul>
+      <li><b>Security:</b> TLS, NLA/CredSSP, certificate pinning prompt</li>
+      <li><b>Graphics:</b> bitmap, RemoteFX, EGFX/H.264 where IronRDP supports it</li>
+      <li><b>Dynamic resize</b> via the display-control channel</li>
+      <li><b>Clipboard</b> (text, then files), audio out, Ctrl+Alt+Del</li>
+      <li><b>.rdp import</b>, gateway support later</li>
+    </ul></div>
+    <div class="card"><span class="tag">VNC</span><h3>Everything else with a screen</h3><ul>
+      <li><b>RFB 3.3 / 3.7 / 3.8</b>, None and VNC auth</li>
+      <li><b>Encodings:</b> Raw, CopyRect, RRE, Hextile, ZRLE, Tight</li>
+      <li><b>Pseudo:</b> DesktopSize, ExtendedDesktopSize, Cursor</li>
+      <li><b>Clipboard</b> both ways, view-only mode</li>
+      <li>VeNCrypt / Apple ARD auth later</li>
+    </ul></div>
+    <div class="card"><span class="tag">Experience</span><h3>Unobtrusive by default</h3><ul>
+      <li><b>Quick connect bar</b> that parses <code>rdp://user@host:port</code></li>
+      <li><b>Command palette</b> (Ctrl+K) for every action</li>
+      <li><b>Fullscreen</b> with a slim edge toolbar that hides itself</li>
+      <li><b>Tabs + live thumbnail overview</b> of all sessions</li>
+      <li><b>Fit / 1:1 / smart scaling</b>, latency and FPS overlay</li>
+    </ul></div>
+    <div class="card"><span class="tag">Extras</span><h3>Ideas beyond a basic client</h3><ul>
+      <li><b>Session recording</b> in a lossless dirty-rect format, built-in player, MP4 export</li>
+      <li><b>Credential vault</b> in the OS keyring, nothing in plain files</li>
+      <li><b>Wake-on-LAN</b> before connect, auto-reconnect with backoff</li>
+      <li><b>Screenshot to clipboard</b>, keystroke macros</li>
+      <li><b>SSH terminal</b> tab as a third protocol</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Keeping the disk safe</span>
+  <h2>Build hygiene</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Measure</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>Dependencies built at <code>opt-level=2</code>, no debug info</td><td>Fast app in dev builds, much smaller <code>target/</code></td></tr>
+      <tr><td>Own crates use <code>debug="line-tables-only"</code> + incremental</td><td>Readable backtraces, quick rebuilds, small incremental cache</td></tr>
+      <tr><td><code>scripts/hygiene.ps1</code></td><td>Prunes stale incremental sessions and old artifacts; runs <code>cargo clean</code> if <code>target/</code> passes a size cap (default 12 GB)</td></tr>
+      <tr><td>One shared <code>target/</code> for the workspace</td><td>Dependencies compiled once for all crates</td></tr>
+      <tr><td><code>cargo check</code> for iteration, full builds only to verify</td><td>Fewer linked binaries piling up</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Newest first</span>
+  <h2>Progress log</h2>
+  <div class="log" id="log"></div>
+</section>
+</main>
+
+<script>
+// status: done | active | todo ; items: [text, done?]
+const MILESTONES = [
+  {id:"M0", t:"Foundation", s:"active", items:[
+    ["Git repo, Cargo workspace, crate layout",0],["Build profiles and disk hygiene script",0],["peek-core: framebuffer, dirty rects, Session trait",0]]},
+  {id:"M1", t:"App shell", s:"todo", items:[
+    ["eframe window, theme, sidebar connection library",0],["Quick connect bar with URL parsing",0],["Tabs, session viewport with partial texture upload",0],["Settings and profile persistence",0]]},
+  {id:"M2", t:"VNC backend", s:"todo", items:[
+    ["Handshake 3.3/3.7/3.8, None + VNC auth",0],["Raw, CopyRect, RRE, Hextile, ZRLE",0],["Tight encoding",0],["Cursor and DesktopSize pseudo-encodings",0],["Keyboard, mouse, clipboard",0]]},
+  {id:"M3", t:"RDP backend", s:"todo", items:[
+    ["Connect with TLS + NLA via IronRDP",0],["Bitmap / RemoteFX decode into framebuffer",0],["Keyboard (scancodes), mouse, wheel",0],["Dynamic resize (display control)",0],["Clipboard and audio",0]]},
+  {id:"M4", t:"Performance pass", s:"todo", items:[
+    ["Frame pacing, repaint only on change",0],["Stats overlay: FPS, bandwidth, latency",0],["Benchmarks for decoders",0]]},
+  {id:"M5", t:"Session recording", s:"todo", items:[
+    ["Lossless .peekrec writer (zstd dirty rects)",0],["Built-in player with seek",0],["MP4 export",0]]},
+  {id:"M6", t:"Vault and library", s:"todo", items:[
+    ["OS keyring credentials",0],["Groups, tags, search, recent",0],[".rdp file import",0]]},
+  {id:"M7", t:"Power features", s:"todo", items:[
+    ["Command palette",0],["Fullscreen auto-hide toolbar",0],["Thumbnail overview",0],["Wake-on-LAN, auto-reconnect",0],["Screenshot, macros",0],["SSH terminal tab",0]]},
+  {id:"M8", t:"Hardening and packaging", s:"todo", items:[
+    ["Fuzz decoders",0],["Release profile, installer",0]]},
+];
+const LOG = [
+  {d:"2026-10-16", h:"Plan published", items:["Settled crate layout and milestones","Checked toolchain: Rust 1.98.1, cmake and nasm present","Chose IronRDP 0.17 for RDP and an in-house RFB client for VNC"]},
+];
+
+const label = {done:"done", active:"in progress", todo:"planned"};
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+document.getElementById("milestones").innerHTML = MILESTONES.map(m => `
+  <details ${m.s==="active"?"open":""}><summary><span class="id">${m.id}</span><span class="t">${esc(m.t)}</span><span class="pill ${m.s}">${label[m.s]}</span></summary>
+  <div class="body"><ul>${m.items.map(([t,d])=>`<li class="${d?"done":""}">${esc(t)}</li>`).join("")}</ul></div></details>`).join("");
+const all = MILESTONES.flatMap(m=>m.items), done = all.filter(i=>i[1]).length;
+const active = MILESTONES.find(m=>m.s==="active");
+document.getElementById("strip").innerHTML = `
+  <div><b>${done} / ${all.length}</b><span>tasks done</span></div>
+  <div><b>${MILESTONES.filter(m=>m.s==="done").length} / ${MILESTONES.length}</b><span>milestones done</span></div>
+  <div><b>${active?active.id:"—"}</b><span>${active?esc(active.t):"nothing active"}</span></div>
+  <div><b>${LOG[0].d.slice(5)}</b><span>last update</span></div>`;
+document.getElementById("barfill").style.width = (100*done/all.length).toFixed(1)+"%";
+document.getElementById("log").innerHTML = LOG.map(l => `<article><time>${l.d}</time><h3>${esc(l.h)}</h3><ul>${l.items.map(i=>`<li>${esc(i)}</li>`).join("")}</ul></article>`).join("");
+</script>
