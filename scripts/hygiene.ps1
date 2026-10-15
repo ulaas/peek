@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Keeps the cargo target directory from growing without bound.
 
@@ -49,7 +49,7 @@ foreach ($profileDir in $profileDirs) {
         if (-not (Test-Path $dir)) { continue }
         $entries = foreach ($e in Get-ChildItem -LiteralPath $dir -Force) {
             if ($e.Name -match $pattern) {
-                [pscustomobject]@{ Item = $e; Name = $Matches.name; Hash = $Matches.hash }
+                [pscustomobject]@{ Entry = $e; Name = $Matches.name; Hash = $Matches.hash }
             }
         }
         foreach ($group in $entries | Group-Object Name) {
@@ -57,8 +57,8 @@ foreach ($profileDir in $profileDirs) {
             $byHash = $group.Group | Group-Object Hash | ForEach-Object {
                 [pscustomobject]@{
                     Hash  = $_.Name
-                    Time  = ($_.Group.Item | Measure-Object LastWriteTime -Maximum).Maximum
-                    Items = $_.Group.Item
+                    Time  = ($_.Group.Entry | Measure-Object LastWriteTime -Maximum).Maximum
+                    Items = @($_.Group.Entry)
                 }
             } | Sort-Object Time -Descending
             $byHash | Select-Object -Skip 1 | Where-Object { $_.Time -lt $cutoff } | ForEach-Object {

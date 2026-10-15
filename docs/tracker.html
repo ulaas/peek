@@ -71,6 +71,10 @@ table{border-collapse:collapse;width:100%;font-size:14px}
 .tw{overflow-x:auto}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 th{font:500 12px var(--f-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.shots figure{margin:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+.shots img{display:block;width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}
+.shots figcaption{font-size:13px;color:var(--muted)}
 .log{display:flex;flex-direction:column;gap:0;border-left:2px solid var(--line);margin-left:6px}
 .log article{position:relative;padding:0 0 22px 22px;display:flex;flex-direction:column;gap:6px}
 .log article::before{content:"";position:absolute;left:-7px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
@@ -88,6 +92,15 @@ th{font:500 12px var(--f-mono);color:var(--muted);text-transform:uppercase;lette
   <div class="strip" id="strip"></div>
   <div class="bar" aria-hidden="true"><i id="barfill" style="width:0"></i></div>
 </header>
+
+<section>
+  <span class="eyebrow">Latest build · real screenshots</span>
+  <h2>What it looks like now</h2>
+  <div class="shots">
+    <figure><img src="shots/session.jpg" alt="Peek connected to the test VNC server: tab bar, connection sidebar, floating session toolbar and the remote picture" loading="lazy"><figcaption>Live VNC session against the bundled test server. The floating toolbar appears at the top edge; the red dot is the server drawing where Peek's pointer is.</figcaption></figure>
+    <figure><img src="shots/home.jpg" alt="Peek home screen with quick connect field, recent connections and actions" loading="lazy"><figcaption>Home: quick connect, recent connections, open sessions as live thumbnails.</figcaption></figure>
+  </div>
+</section>
 
 <section>
   <span class="eyebrow">Milestones</span>
@@ -178,24 +191,27 @@ th{font:500 12px var(--f-mono);color:var(--muted);text-transform:uppercase;lette
 const MILESTONES = [
   {id:"M0", t:"Foundation", s:"done", items:[
     ["Git repo, Cargo workspace, crate layout",1],["Build profiles and disk hygiene script",1],["peek-core: framebuffer, dirty rects, session contract",1]]},
-  {id:"M1", t:"App shell", s:"active", items:[
-    ["eframe window, theme, sidebar connection library",0],["Quick connect bar with URL parsing",1],["Tabs, session viewport with partial texture upload",0],["Settings and profile persistence",0]]},
-  {id:"M2", t:"VNC backend", s:"active", items:[
-    ["Handshake 3.3/3.7/3.8, None + VNC auth",1],["Raw, CopyRect, RRE, Hextile, ZRLE",1],["Tight encoding with JPEG",1],["Cursor and DesktopSize pseudo-encodings",1],["Keyboard, mouse, clipboard",1],["Tested against a live server",0]]},
+  {id:"M1", t:"App shell", s:"done", items:[
+    ["eframe window, theme, sidebar connection library",1],["Quick connect bar with URL parsing",1],["Tabs, session viewport with partial texture upload",1],["Settings and profile persistence",1],["Sign-in prompt, keychain storage",1],["Icon font (Phosphor)",1]]},
+  {id:"M2", t:"VNC backend", s:"done", items:[
+    ["Handshake 3.3/3.7/3.8, None + VNC auth",1],["Raw, CopyRect, RRE, Hextile, ZRLE",1],["Tight encoding with JPEG",1],["Cursor and DesktopSize pseudo-encodings",1],["Keyboard, mouse, clipboard",1],["End-to-end test against the bundled test server",1]]},
   {id:"M3", t:"RDP backend", s:"active", items:[
     ["Connect with TLS + NLA via IronRDP",1],["Bitmap / RemoteFX decode, region-only blits",1],["Keyboard (scancodes), mouse, wheel",1],["Dynamic resize (display control)",1],["Audio playback",1],["Clipboard (CLIPRDR)",0],["Certificate trust prompt (TOFU)",0],["Tested against a live server",0]]},
-  {id:"M4", t:"Performance pass", s:"todo", items:[
-    ["Frame pacing, repaint only on change",0],["Stats overlay: FPS, bandwidth, latency",0],["Benchmarks for decoders",0]]},
-  {id:"M5", t:"Session recording", s:"todo", items:[
-    ["Lossless .peekrec writer (zstd dirty rects)",0],["Built-in player with seek",0],["MP4 export",0]]},
-  {id:"M6", t:"Vault and library", s:"todo", items:[
-    ["OS keyring credentials",0],["Groups, tags, search, recent",0],[".rdp file import",0]]},
-  {id:"M7", t:"Power features", s:"todo", items:[
-    ["Command palette",0],["Fullscreen auto-hide toolbar",0],["Thumbnail overview",0],["Wake-on-LAN, auto-reconnect",0],["Screenshot, macros",0],["SSH terminal tab",0]]},
+  {id:"M4", t:"Performance pass", s:"active", items:[
+    ["Repaint only on change (backend wakes the UI)",1],["Stats overlay: updates/s, bandwidth",1],["Benchmarks for decoders",0],["Release build profile measured",0]]},
+  {id:"M5", t:"Session recording", s:"active", items:[
+    ["Lossless .peekrec writer (zstd dirty rects, crash-safe segments)",1],["Built-in player with seek and speed",1],["MP4 export",0]]},
+  {id:"M6", t:"Vault and library", s:"active", items:[
+    ["OS keyring credentials",1],["Groups, favorites, search, recent",1],["Certificate trust on first use",1],[".rdp file import",0]]},
+  {id:"M7", t:"Power features", s:"active", items:[
+    ["Command palette (Ctrl+K)",1],["Floating session toolbar",1],["Live thumbnail overview",1],["Wake-on-LAN",1],["Screenshot to clipboard",1],["Auto-reconnect",0],["Keyboard grab (Win key, Alt+Tab)",0],["SSH terminal tab",0]]},
   {id:"M8", t:"Hardening and packaging", s:"todo", items:[
     ["Fuzz decoders",0],["Release profile, installer",0]]},
 ];
 const LOG = [
+  {d:"2026-10-16", h:"The app runs", items:["egui 0.37 shell: tabs, connection sidebar, home screen with recent connections and live thumbnails","Session view uploads only damaged rectangles to the GPU texture and draws the remote cursor locally","Each RDP session gets its own thread and runtime (IronRDP futures are not Send, and RemoteFX decoding is heavy)","Command palette, connection editor, settings, certificate change warning, toasts","Bundled test VNC server: connected, decoded ZRLE, pointer round-trip confirmed on screen","Password prompt path confirmed against the server with VNC auth","35 unit tests passing"]},
+  {d:"2026-10-16", h:"Disk hygiene verified", items:["Fixed a bug in hygiene.ps1 (a PowerShell name clash made it skip everything)","Aggressive prune took target/ from 3.9 GB to 2.3 GB, and the project still builds","scripts/dev.ps1 wraps cargo and checks target/ after every command"]},
+  {d:"2026-10-16", h:"Recording format", items:[".peekrec stores only changed regions with timestamps, in independent zstd segments","A recording cut off mid-write still opens up to its last complete segment (tested)","Keyframe every 10 s for fast seeking"]},
   {d:"2026-10-16", h:"RDP backend compiles", items:["Wrote our own session driver on IronRDP 0.17 instead of using ironrdp-client, which copies the full desktop on every update","Only the updated region is copied into the framebuffer","Remote cursor arrives as a bitmap and is drawn locally, so the pointer never lags","Server certificate SHA-256 fingerprint is reported for a later trust prompt","Not yet tested against a real Windows host"]},
   {d:"2026-10-16", h:"VNC backend done", items:["In-house RFB client: 3.3, 3.7 and 3.8 with None and VNC auth","Decoders: Raw, CopyRect, RRE, Hextile, ZRLE, Tight with JPEG; pure functions over byte slices so they can be fuzzed","DES auth checked against the FIPS test vector","13 unit tests, all passing"]},
   {d:"2026-10-16", h:"Foundation committed", items:["Workspace, build profiles, hygiene script","peek-core: framebuffer with dirty rectangles, scancode and keysym tables, address parser","14 unit tests, all passing"]},
