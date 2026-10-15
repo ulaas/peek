@@ -393,3 +393,71 @@ mod tests {
         assert_eq!(k.check(&e, "BB"), Trust::Changed { previous: "AA".into() });
     }
 }
+
+/// Parse a Microsoft `.rdp` connection file into a profile.
+///
+/// Accepts the UTF-16LE (with BOM) files mstsc writes as well as UTF-8.
+pub fn import_rdp_file(bytes: &[u8], file_name: &str) -> anyhow::Result<Profile> {
+    let text = if bytes.starts_with(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes)).into_owned()
+    };
+    let mut fields = std::collections::HashMap::new();
+    for line in text.lines() {
+        let mut parts = line.splitn(3, ':');
+        if let (Some(k), Some(_ty), Some(v)) = (parts.next(), parts.next(), parts.next()) {
+            fields.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
+        }
+    }
+    let address = fields.get("full address").filter(|a| !a.is_empty()).context("the file has no \"full address\"")?;
+    let mut endpoint = Endpoint::parse(&format!("rdp://{address}"))?;
+    let mut profile = Profile::new(endpoint.clone());
+    if let Some(u) = fields.get("username").filter(|u| !u.is_empty()) {
+        endpoint.username = Some(u.clone());
+    }
+    profile.domain = fields.get("domain").filter(|d| !d.is_empty()).cloned();
+    profile.endpoint = endpoint;
+    let stem = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
+    profile.name = stem.strip_suffix(".rdp").unwrap_or(stem).to_string();
+    let flag = |k: &str| fields.get(k).map(|v| v.as_str());
+    if flag("redirectclipboard") == Some("0") {
+        profile.options.clipboard = false;
+    }
+    // audiomode 0 = play here, 1 = play on remote, 2 = never
+    if matches!(flag("audiomode"), Some("1") | Some("2")) {
+        profile.options.audio = false;
+    }
+    if flag("dynamic resolution") == Some("0") {
+        profile.options.resize_remote = false;
+    }
+    if flag("smart sizing") == Some("0") && flag("dynamic resolution") == Some("0") {
+        profile.options.scale = ScaleMode::Native;
+    }
+    Ok(profile)
+}
+
+#[cfg(test)]
+mod rdp_tests {
+    use super::*;
+
+    #[test]
+    fn utf16_rdp_file() {
+        let src = "screen mode id:i:2\r\nfull address:s:srv01.corp:3390\r\nusername:s:CORP\\alice\r\nredirectclipboard:i:0\r\n";
+        let mut bytes = vec![0xFF, 0xFE];
+        for u in src.encode_utf16() {
+            bytes.extend_from_slice(&u.to_le_bytes());
+        }
+        let p = import_rdp_file(&bytes, "C:\\Users\\x\\Work PC.rdp").unwrap();
+        assert_eq!(p.name, "Work PC");
+        assert_eq!((p.endpoint.host.as_str(), p.endpoint.port), ("srv01.corp", 3390));
+        assert_eq!(p.endpoint.username.as_deref(), Some("CORP\\alice"));
+        assert!(!p.options.clipboard);
+    }
+
+    #[test]
+    fn missing_address() {
+        assert!(import_rdp_file(b"username:s:bob\n", "x.rdp").is_err());
+    }
+}

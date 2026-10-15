@@ -53,6 +53,7 @@ enum Command {
     QuickConnect(String),
     NewConnection,
     OpenRecording,
+    ImportRdp,
     OpenRecordingsFolder,
     ToggleFullscreen,
     ToggleSidebar,
@@ -174,6 +175,7 @@ impl PeekApp {
         };
         match arg {
             Some(a) if a.to_lowercase().ends_with(".peekrec") => app.open_recording(PathBuf::from(a)),
+            Some(a) if a.to_lowercase().ends_with(".rdp") => app.import_rdp(std::path::Path::new(&a)),
             Some(a) => app.quick_connect(&cc.egui_ctx, &a),
             None => {}
         }
@@ -317,6 +319,23 @@ impl PeekApp {
         }
     }
 
+    fn import_rdp(&mut self, path: &std::path::Path) {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        match std::fs::read(path).map_err(anyhow::Error::from).and_then(|b| peek_store::import_rdp_file(&b, &name)) {
+            Ok(p) => {
+                let label = p.name.clone();
+                if self.store.library.find_endpoint(&p.endpoint).is_some() {
+                    self.toast(format!("{label} is already in your connections"), ToastKind::Info);
+                    return;
+                }
+                self.store.library.upsert(p);
+                self.save_library();
+                self.toast(format!("Imported {label}"), ToastKind::Success);
+            }
+            Err(e) => self.toast(format!("Cannot import {name}: {e:#}"), ToastKind::Warning),
+        }
+    }
+
     fn close_tab(&mut self, i: usize) {
         if i < self.tabs.len() {
             self.tabs.remove(i);
@@ -408,6 +427,13 @@ impl PeekApp {
                     .pick_file()
                 {
                     self.open_recording(path);
+                }
+            }
+            Command::ImportRdp => {
+                if let Some(paths) = rfd::FileDialog::new().add_filter("Remote Desktop file", &["rdp"]).pick_files() {
+                    for p in paths {
+                        self.import_rdp(&p);
+                    }
                 }
             }
             Command::OpenRecordingsFolder => open_in_file_manager(&self.store.recordings_dir()),
@@ -772,7 +798,7 @@ impl PeekApp {
                     });
                     ui.add_space(10.0);
                     ui.label(
-                        RichText::new("Ctrl+K commands  ·  Ctrl+L connect  ·  Ctrl+Alt+Enter full screen  ·  drop a .peekrec file to play it")
+                        RichText::new("Ctrl+K commands  ·  Ctrl+L connect  ·  Ctrl+Alt+Enter full screen  ·  drop .rdp files to import")
                             .small()
                             .weak(),
                     );
@@ -974,6 +1000,7 @@ impl PeekApp {
             ("New connection…".to_string(), Command::NewConnection),
             ("Home".into(), Command::Home),
             ("Open recording…".into(), Command::OpenRecording),
+            ("Import .rdp files…".into(), Command::ImportRdp),
             ("Open recordings folder".into(), Command::OpenRecordingsFolder),
             ("Toggle full screen".into(), Command::ToggleFullscreen),
             ("Toggle connections sidebar".into(), Command::ToggleSidebar),
@@ -1211,10 +1238,10 @@ impl eframe::App for PeekApp {
         // Dropped recordings open in the player.
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
         for path in dropped {
-            if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("peekrec")) {
-                self.open_recording(path);
-            } else {
-                self.toast("Only .peekrec recordings can be dropped here", ToastKind::Info);
+            match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
+                Some("peekrec") => self.open_recording(path),
+                Some("rdp") => self.import_rdp(&path),
+                _ => self.toast("Drop .rdp files to import them, or .peekrec recordings to play them", ToastKind::Info),
             }
         }
 
