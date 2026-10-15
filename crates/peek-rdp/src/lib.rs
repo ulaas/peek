@@ -149,7 +149,7 @@ async fn connect(req: &ConnectRequest, width: u16, height: u16, ctx: &SessionCon
 fn rdp_err(e: connector::ConnectorError) -> anyhow::Error {
     use connector::ConnectorErrorKind as K;
     let msg = match e.kind() {
-        K::Credssp(_) => "sign-in failed: check the user name and password".to_string(),
+        K::Credssp(_) => return peek_core::AuthError::Rejected("check the user name and password".into()).into(),
         K::AccessDenied => "access denied: this account may not sign in remotely".to_string(),
         K::Negotiation(f) => format!("the server refused the security negotiation ({f:?})"),
         _ => format!("{}", e.report()),

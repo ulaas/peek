@@ -10,6 +10,6 @@ pub use endpoint::{Endpoint, ParseError, Protocol};
 pub use frame::{Framebuffer, FrameWriter, Rect, SharedFrame, rgb, rgba};
 pub use input::{InputEvent, KeyCode, MouseButton, char_to_keysym};
 pub use session::{
-    ConnectRequest, Credentials, CursorImage, CursorUpdate, EventSink, SessionCommand, SessionContext,
+    AuthError, ConnectRequest, Credentials, CursorImage, CursorUpdate, EventSink, SessionCommand, SessionContext,
     SessionEvent, SessionHandle, SessionOptions, SessionStats, new_session,
 };

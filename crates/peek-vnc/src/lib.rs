@@ -25,15 +25,6 @@ use tokio::sync::mpsc;
 
 pub use handshake::vnc_auth_response;
 
-/// The server asked for a password and none was given.
-#[derive(Debug, thiserror::Error)]
-#[error("this VNC server needs a password")]
-pub struct NeedPassword;
-
-/// The server rejected the credentials.
-#[derive(Debug, thiserror::Error)]
-#[error("authentication failed{}", if .0.is_empty() { String::new() } else { format!(": {}", .0) })]
-pub struct AuthFailed(pub String);
 
 const MAX_DIM: u32 = 16384;
 const NO_SCREEN: u32 = u32::MAX;

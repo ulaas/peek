@@ -122,7 +122,7 @@ where
         SEC_NONE => {}
         SEC_VNC => {
             let Some(pw) = password.filter(|p| !p.is_empty()) else {
-                bail!(crate::NeedPassword);
+                bail!(peek_core::AuthError::PasswordRequired);
             };
             let mut challenge = [0u8; 16];
             r.exact(&mut challenge).await?;
@@ -136,7 +136,7 @@ where
         let result = r.u32().await?;
         if result != 0 {
             let reason = if version == Version::V3_8 { read_reason(r).await } else { String::new() };
-            bail!(crate::AuthFailed(reason));
+            bail!(peek_core::AuthError::Rejected(reason));
         }
     }
 

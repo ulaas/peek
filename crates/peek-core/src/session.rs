@@ -92,7 +92,19 @@ pub enum SessionEvent {
     Bell,
     /// Server certificate / host key fingerprint seen during connect.
     ServerIdentity { fingerprint: String },
+    /// The server rejected or asked for credentials; the UI should prompt.
+    AuthRequired { message: String },
     Disconnected { reason: Option<String>, error: bool },
+}
+
+/// Returned by backends when credentials are missing or wrong, so the UI
+/// can ask for them instead of showing a generic error.
+#[derive(Debug, thiserror::Error)]
+pub enum AuthError {
+    #[error("this server needs a password")]
+    PasswordRequired,
+    #[error("sign-in failed{}", if .0.is_empty() { String::new() } else { format!(": {}", .0) })]
+    Rejected(String),
 }
 
 #[derive(Clone, Debug)]

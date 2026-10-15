@@ -1,0 +1,16 @@
+[package]
+name = "peek-store"
+description = "Connection library, settings and credential vault for Peek"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+peek-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+toml = "1"
+directories = "6"
+keyring = "4"

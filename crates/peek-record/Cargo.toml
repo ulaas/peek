@@ -1,0 +1,12 @@
+[package]
+name = "peek-record"
+description = "Lossless session recording and playback for Peek"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+peek-core.workspace = true
+anyhow.workspace = true
+bytemuck.workspace = true
+zstd.workspace = true

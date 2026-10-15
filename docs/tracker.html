@@ -176,14 +176,14 @@ th{font:500 12px var(--f-mono);color:var(--muted);text-transform:uppercase;lette
 <script>
 // status: done | active | todo ; items: [text, done?]
 const MILESTONES = [
-  {id:"M0", t:"Foundation", s:"active", items:[
-    ["Git repo, Cargo workspace, crate layout",0],["Build profiles and disk hygiene script",0],["peek-core: framebuffer, dirty rects, Session trait",0]]},
-  {id:"M1", t:"App shell", s:"todo", items:[
-    ["eframe window, theme, sidebar connection library",0],["Quick connect bar with URL parsing",0],["Tabs, session viewport with partial texture upload",0],["Settings and profile persistence",0]]},
-  {id:"M2", t:"VNC backend", s:"todo", items:[
-    ["Handshake 3.3/3.7/3.8, None + VNC auth",0],["Raw, CopyRect, RRE, Hextile, ZRLE",0],["Tight encoding",0],["Cursor and DesktopSize pseudo-encodings",0],["Keyboard, mouse, clipboard",0]]},
-  {id:"M3", t:"RDP backend", s:"todo", items:[
-    ["Connect with TLS + NLA via IronRDP",0],["Bitmap / RemoteFX decode into framebuffer",0],["Keyboard (scancodes), mouse, wheel",0],["Dynamic resize (display control)",0],["Clipboard and audio",0]]},
+  {id:"M0", t:"Foundation", s:"done", items:[
+    ["Git repo, Cargo workspace, crate layout",1],["Build profiles and disk hygiene script",1],["peek-core: framebuffer, dirty rects, session contract",1]]},
+  {id:"M1", t:"App shell", s:"active", items:[
+    ["eframe window, theme, sidebar connection library",0],["Quick connect bar with URL parsing",1],["Tabs, session viewport with partial texture upload",0],["Settings and profile persistence",0]]},
+  {id:"M2", t:"VNC backend", s:"active", items:[
+    ["Handshake 3.3/3.7/3.8, None + VNC auth",1],["Raw, CopyRect, RRE, Hextile, ZRLE",1],["Tight encoding with JPEG",1],["Cursor and DesktopSize pseudo-encodings",1],["Keyboard, mouse, clipboard",1],["Tested against a live server",0]]},
+  {id:"M3", t:"RDP backend", s:"active", items:[
+    ["Connect with TLS + NLA via IronRDP",1],["Bitmap / RemoteFX decode, region-only blits",1],["Keyboard (scancodes), mouse, wheel",1],["Dynamic resize (display control)",1],["Audio playback",1],["Clipboard (CLIPRDR)",0],["Certificate trust prompt (TOFU)",0],["Tested against a live server",0]]},
   {id:"M4", t:"Performance pass", s:"todo", items:[
     ["Frame pacing, repaint only on change",0],["Stats overlay: FPS, bandwidth, latency",0],["Benchmarks for decoders",0]]},
   {id:"M5", t:"Session recording", s:"todo", items:[
@@ -196,6 +196,9 @@ const MILESTONES = [
     ["Fuzz decoders",0],["Release profile, installer",0]]},
 ];
 const LOG = [
+  {d:"2026-10-16", h:"RDP backend compiles", items:["Wrote our own session driver on IronRDP 0.17 instead of using ironrdp-client, which copies the full desktop on every update","Only the updated region is copied into the framebuffer","Remote cursor arrives as a bitmap and is drawn locally, so the pointer never lags","Server certificate SHA-256 fingerprint is reported for a later trust prompt","Not yet tested against a real Windows host"]},
+  {d:"2026-10-16", h:"VNC backend done", items:["In-house RFB client: 3.3, 3.7 and 3.8 with None and VNC auth","Decoders: Raw, CopyRect, RRE, Hextile, ZRLE, Tight with JPEG; pure functions over byte slices so they can be fuzzed","DES auth checked against the FIPS test vector","13 unit tests, all passing"]},
+  {d:"2026-10-16", h:"Foundation committed", items:["Workspace, build profiles, hygiene script","peek-core: framebuffer with dirty rectangles, scancode and keysym tables, address parser","14 unit tests, all passing"]},
   {d:"2026-10-16", h:"Plan published", items:["Settled crate layout and milestones","Checked toolchain: Rust 1.98.1, cmake and nasm present","Chose IronRDP 0.17 for RDP and an in-house RFB client for VNC"]},
 ];
 

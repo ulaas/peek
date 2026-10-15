@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/peek-core", "crates/peek-vnc", "crates/peek-rdp"]
+default-members = ["crates/peek-app"]
+members = ["crates/*"]
 
 
 [workspace.package]
