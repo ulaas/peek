@@ -101,9 +101,9 @@ pub enum SessionEvent {
 /// can ask for them instead of showing a generic error.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
-    #[error("this server needs a password")]
+    #[error("This server needs a password.")]
     PasswordRequired,
-    #[error("sign-in failed{}", if .0.is_empty() { String::new() } else { format!(": {}", .0) })]
+    #[error("Sign-in failed{}", if .0.is_empty() { ".".to_string() } else { format!(": {}.", .0) })]
     Rejected(String),
 }
 
