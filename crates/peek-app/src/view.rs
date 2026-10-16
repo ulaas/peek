@@ -544,15 +544,22 @@ impl SessionView {
                 }
                 Event::ModifiersChanged(m) if keyboard_via_egui => self.sync_modifiers(m),
                 Event::Text(t) if keyboard_via_egui => self.input(InputEvent::Text(t)),
-                // egui turns these shortcuts into clipboard events and drops the key.
+                // egui turns these shortcuts into clipboard events and drops the key, so replay
+                // the key. Shift+Delete / Shift+Insert are the Windows alternates for cut / paste.
                 Event::Copy if keyboard_via_egui => self.tap(KeyCode::KeyC),
-                Event::Cut if keyboard_via_egui => self.tap(KeyCode::KeyX),
-                Event::Paste(text) if keyboard_via_egui => {
-                    if self.options.clipboard {
-                        self.last_clipboard = Some(text.clone());
-                        self.send(SessionCommand::ClipboardText(text));
+                Event::Cut if keyboard_via_egui => {
+                    let m = ui.input(|i| i.modifiers);
+                    self.tap(if m.shift && !m.ctrl { KeyCode::Delete } else { KeyCode::KeyX });
+                }
+                paste @ (Event::Paste(_) | Event::PasteImage(_)) if keyboard_via_egui => {
+                    if let Event::Paste(text) = paste {
+                        if self.options.clipboard {
+                            self.last_clipboard = Some(text.clone());
+                            self.send(SessionCommand::ClipboardText(text));
+                        }
                     }
-                    self.tap(KeyCode::KeyV);
+                    let m = ui.input(|i| i.modifiers);
+                    self.tap(if m.shift && !m.ctrl { KeyCode::Insert } else { KeyCode::KeyV });
                 }
                 _ => {}
             }

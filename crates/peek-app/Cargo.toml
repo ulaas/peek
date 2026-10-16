@@ -21,7 +21,7 @@ tokio.workspace = true
 parking_lot.workspace = true
 bytemuck.workspace = true
 uuid.workspace = true
-eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "persistence"] }
+eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts", "accesskit", "persistence", "clipboard"] }
 egui = { version = "0.37", features = ["bytemuck"] }
 peek-record = { path = "../peek-record" }
 rfd = "0.17"
