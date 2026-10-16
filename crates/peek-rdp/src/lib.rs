@@ -164,6 +164,11 @@ async fn connect(
         // Opus below LAN speeds (the Experience compression switch tracks that).
         let sound = audio::SessionSound::new(ctx.audio.clone(), req.options.experience.compression);
         connector = connector.with_static_channel(audio::SoundChannel::new(sound));
+        // Windows starts sound output only after the client has announced the
+        // device redirection channel; announce it, with no devices.
+        let name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "peek".into());
+        connector = connector.with_static_channel(ironrdp::rdpdr::Rdpdr::new(Box::new(ironrdp::rdpdr::NoopRdpdrBackend), name));
+        tracing::info!("audio: requesting rdpsnd (with rdpdr)");
     }
 
     ctx.events.status("Negotiating security");

@@ -14,7 +14,7 @@ peek-core.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tokio.workspace = true
-ironrdp = { version = "0.17", features = ["core", "connector", "session", "graphics", "input", "pdu", "svc", "dvc", "displaycontrol", "rdpsnd", "cliprdr"] }
+ironrdp = { version = "0.17", features = ["core", "connector", "session", "graphics", "input", "pdu", "svc", "dvc", "displaycontrol", "rdpsnd", "cliprdr", "rdpdr"] }
 ironrdp-tokio = "0.10"
 ironrdp-tls = { version = "0.2", features = ["rustls-ring"] }
 ironrdp-error = "0.2"
