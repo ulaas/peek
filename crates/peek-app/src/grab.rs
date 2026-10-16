@@ -8,6 +8,11 @@
 //! Num Lock). In [`GrabMode::System`] only the system shortcuts are captured
 //! and ordinary typing keeps flowing through egui, which VNC needs for
 //! layout-aware text.
+//!
+//! The session view also forwards whatever keys still reach egui, in every
+//! mode: the hook skips injected input (remote-control tools, on-screen
+//! keyboards) and Windows can drop a slow hook without notice, so egui is
+//! the fallback that keeps typing working.
 
 use peek_core::KeyCode;
 

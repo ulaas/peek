@@ -102,6 +102,8 @@ pub struct PeekApp {
     selected: Option<Uuid>,
     about_open: bool,
     logo: egui::TextureHandle,
+    /// Session shown last frame, to hand it keyboard focus on tab switches.
+    last_shown: Option<u64>,
 }
 
 /// Credentials are keyed by endpoint so quick connect and saved
@@ -228,6 +230,7 @@ impl PeekApp {
             window_focused: true,
             selected: None,
             about_open: false,
+            last_shown: None,
             logo: logo::texture(&cc.egui_ctx),
         };
         match arg {
@@ -1611,12 +1614,16 @@ impl eframe::App for PeekApp {
             match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 Some(Tab::Session(s)) => {
                     view_id = s.id;
-                    s.show(ui, &grabbed, grab_mode, &mut view_actions);
+                    if self.last_shown != Some(s.id) && s.is_connected() {
+                        s.take_focus();
+                    }
+                    s.show(ui, &grabbed, &mut view_actions);
                 }
                 Some(Tab::Player(p)) => p.show(ui),
                 None => self.home(ui),
             }
         });
+        self.last_shown = (view_id != 0).then_some(view_id);
         for a in view_actions {
             self.handle_action(&ctx, view_id, a);
         }

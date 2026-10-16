@@ -2,7 +2,7 @@
 //! texture, translates local input, draws the remote cursor locally and
 //! hosts the floating session toolbar.
 
-use crate::grab::{GrabMode, GrabbedKey};
+use crate::grab::GrabbedKey;
 use crate::icons;
 use crate::keymap;
 use crate::theme;
@@ -77,6 +77,8 @@ pub struct SessionView {
     cursor_mode: CursorMode,
     cursor: Option<RemoteCursor>,
     focused: bool,
+    /// Take keyboard focus on the next frame (after connecting, on tab switch).
+    focus_pending: bool,
     sent_mods: egui::Modifiers,
     grab_ctrl: bool,
     grab_alt: bool,
@@ -129,6 +131,7 @@ impl SessionView {
             cursor_mode: CursorMode::Local,
             cursor: None,
             focused: false,
+            focus_pending: false,
             sent_mods: egui::Modifiers::NONE,
             grab_ctrl: false,
             grab_alt: false,
@@ -152,6 +155,11 @@ impl SessionView {
 
     pub fn is_live(&self) -> bool {
         matches!(self.phase, Phase::Connecting(_) | Phase::Connected)
+    }
+
+    /// Ask for keyboard focus when this view is next shown.
+    pub fn take_focus(&mut self) {
+        self.focus_pending = true;
     }
 
     pub fn has_keyboard_focus(&self) -> bool {
@@ -256,6 +264,7 @@ impl SessionView {
                     tracing::info!(session = self.id, "connected");
                     self.phase = Phase::Connected;
                     self.ever_connected = true;
+                    self.focus_pending = true;
                     self.attempts = 0;
                     actions.push(ViewAction::Connected);
                     if self.options.auto_record {
@@ -454,11 +463,9 @@ impl SessionView {
         img: ERect,
         hovered: bool,
         grabbed: &[GrabbedKey],
-        grab: GrabMode,
         actions: &mut Vec<ViewAction>,
     ) {
-        // Keys captured by the OS-level grab. In full-grab mode these are the
-        // only keyboard input; egui sees nothing.
+        // Keys captured by the OS-level grab (exact scancodes, system keys).
         if self.focused {
             for &(code, down) in grabbed {
                 match code {
@@ -479,7 +486,13 @@ impl SessionView {
                 self.input(InputEvent::Key { code, down });
             }
         }
-        let keyboard_via_egui = self.focused && grab != GrabMode::All;
+        // Keys still reaching egui were not taken by the grab: the hook skips
+        // injected input (remote-control tools, on-screen keyboards, auto-type)
+        // and Windows silently drops a hook that answers too slowly. A key the
+        // hook takes never reaches egui, so forwarding these cannot double up.
+        // In full-grab mode the hook's swallowed modifiers never show up in
+        // egui's modifier state either, so syncing it sends nothing extra.
+        let keyboard_via_egui = self.focused;
         let events = ui.input(|i| i.events.clone());
         let (wheel_threshold, rdp) = match self.endpoint.protocol {
             Protocol::Rdp => (15.0, true),
@@ -624,7 +637,7 @@ impl SessionView {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, grabbed: &[GrabbedKey], grab: GrabMode, actions: &mut Vec<ViewAction>) {
+    pub fn show(&mut self, ui: &mut egui::Ui, grabbed: &[GrabbedKey], actions: &mut Vec<ViewAction>) {
         let ctx = ui.ctx().clone();
         let area = ui.available_rect_before_wrap();
         ui.painter().rect_filled(area, 0.0, theme::canvas(ui.visuals().dark_mode));
@@ -703,6 +716,10 @@ impl SessionView {
         if resp.clicked() || resp.drag_started() || resp.secondary_clicked() {
             resp.request_focus();
         }
+        // Typing goes to the remote right away, unless a text field is in use.
+        if std::mem::take(&mut self.focus_pending) && ui.memory(|m| m.focused().is_none()) {
+            resp.request_focus();
+        }
         let focused_now = resp.has_focus();
         if focused_now {
             ui.memory_mut(|m| {
@@ -728,7 +745,7 @@ impl SessionView {
             painter.image(tex.id(), img, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
 
-        self.handle_input(ui, img, hovered, grabbed, grab, actions);
+        self.handle_input(ui, img, hovered, grabbed, actions);
 
         // Draw the remote cursor ourselves: no round trip, no lag.
         if hovered && img.contains(hover_pos.unwrap_or_default()) {
