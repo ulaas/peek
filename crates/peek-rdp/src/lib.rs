@@ -17,12 +17,12 @@ use ironrdp::input::{Database, MousePosition, Operation, Scancode, WheelRotation
 use ironrdp::pdu::gcc::KeyboardType;
 use ironrdp::pdu::geometry::InclusiveRectangle;
 use ironrdp::pdu::rdp::capability_sets::{MajorPlatformType, client_codecs_capabilities};
-use ironrdp::pdu::rdp::client_info::{PerformanceFlags, TimezoneInfo};
+use ironrdp::pdu::rdp::client_info::{CompressionType, PerformanceFlags, TimezoneInfo};
 use ironrdp::session::image::DecodedImage;
 use ironrdp::session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput, fast_path};
 use ironrdp_tokio::{FramedWrite as _, single_sequence_step_read, split_tokio_framed};
 use peek_core::{
-    ConnectRequest, CursorImage, CursorUpdate, InputEvent, KeyCode, MouseButton, Rect, SessionCommand,
+    ConnectRequest, Experience, CursorImage, CursorUpdate, InputEvent, KeyCode, MouseButton, Rect, SessionCommand,
     SessionContext, SessionEvent, SharedFrame,
 };
 use std::sync::Arc;
@@ -82,7 +82,7 @@ fn connector_config(req: &ConnectRequest, width: u16, height: u16) -> connector:
         desktop_scale_factor: req.options.scale_percent,
         bitmap: Some(connector::BitmapConfig {
             lossy_compression: true,
-            color_depth: 32,
+            color_depth: u32::from(req.options.experience.color_depth),
             codecs: client_codecs_capabilities(&[]).expect("default codec list"),
         }),
         client_build: 0,
@@ -99,15 +99,30 @@ fn connector_config(req: &ConnectRequest, width: u16, height: u16) -> connector:
         request_data: None,
         autologon: false,
         enable_audio_playback: req.options.audio,
-        compression_type: None,
+        // XCRUSH, the strongest bulk compressor Windows offers.
+        compression_type: req.options.experience.compression.then_some(CompressionType::Rdp61),
         multitransport_flags: None,
-        performance_flags: PerformanceFlags::default(),
+        performance_flags: performance_flags(&req.options.experience),
         hardware_id: None,
         license_cache: None,
         timezone_info: TimezoneInfo::default(),
         alternate_shell: String::new(),
         work_dir: String::new(),
     }
+}
+
+/// The Client Info performance flags for an experience: each visual effect is
+/// a "disable" flag except font smoothing and composition, which are "enable".
+fn performance_flags(e: &Experience) -> PerformanceFlags {
+    let mut f = PerformanceFlags::empty();
+    let mut set = |on: bool, flag| f.set(flag, on);
+    set(!e.wallpaper, PerformanceFlags::DISABLE_WALLPAPER);
+    set(!e.window_drag, PerformanceFlags::DISABLE_FULLWINDOWDRAG);
+    set(!e.menu_animations, PerformanceFlags::DISABLE_MENUANIMATIONS);
+    set(!e.visual_styles, PerformanceFlags::DISABLE_THEMING);
+    set(e.font_smoothing, PerformanceFlags::ENABLE_FONT_SMOOTHING);
+    set(e.desktop_composition, PerformanceFlags::ENABLE_DESKTOP_COMPOSITION);
+    f
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -456,6 +471,26 @@ mod tests {
             Credentials::UsernamePassword { username, .. } => assert_eq!(username, "alice"),
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn experience_to_flags() {
+        use peek_core::ConnectionSpeed;
+        let lan = performance_flags(&ConnectionSpeed::Lan.experience());
+        assert_eq!(lan, PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION);
+        let modem = performance_flags(&ConnectionSpeed::Modem.experience());
+        assert!(modem.contains(PerformanceFlags::DISABLE_WALLPAPER | PerformanceFlags::DISABLE_THEMING));
+        assert!(!modem.intersects(PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION));
+
+        let mut req = ConnectRequest {
+            endpoint: peek_core::Endpoint::parse("host").unwrap(),
+            credentials: Default::default(),
+            options: Default::default(),
+        };
+        req.options.experience = ConnectionSpeed::Modem.experience();
+        let cfg = connector_config(&req, 800, 600);
+        assert_eq!(cfg.bitmap.as_ref().map(|b| b.color_depth), Some(16));
+        assert_eq!(cfg.compression_type, Some(CompressionType::Rdp61));
     }
 
     #[test]

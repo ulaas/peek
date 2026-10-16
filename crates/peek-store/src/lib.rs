@@ -6,7 +6,7 @@
 //! Service on Linux) and never touch disk in plain text.
 
 use anyhow::Context;
-use peek_core::Endpoint;
+use peek_core::{ConnectionSpeed, Endpoint, Experience};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -147,11 +147,20 @@ pub struct ProfileOptions {
     /// Start recording as soon as the session connects.
     #[serde(default)]
     pub auto_record: bool,
+    /// Reconnect on its own when the connection drops.
+    #[serde(default = "yes")]
+    pub auto_reconnect: bool,
+    /// Connection speed preset the experience came from (or Custom).
+    #[serde(default)]
+    pub speed: ConnectionSpeed,
+    /// RDP visual effects, color depth and compression.
+    #[serde(default)]
+    pub experience: Experience,
 }
 
 impl Default for ProfileOptions {
     fn default() -> Self {
-        Self { scale: ScaleMode::Fit, resolution: Resolution::default(), view_only: false, audio: true, clipboard: true, auto_record: false }
+        Self { scale: ScaleMode::Fit, resolution: Resolution::default(), view_only: false, audio: true, clipboard: true, auto_record: false, auto_reconnect: true, speed: ConnectionSpeed::Lan, experience: Experience::default() }
     }
 }
 
@@ -477,6 +486,32 @@ pub fn import_rdp_file(bytes: &[u8], file_name: &str) -> anyhow::Result<Profile>
     if matches!(flag("audiomode"), Some("1") | Some("2")) {
         profile.options.audio = false;
     }
+    if flag("autoreconnection enabled") == Some("0") {
+        profile.options.auto_reconnect = false;
+    }
+    // Experience tab. Missing keys keep Peek's defaults.
+    let e = &mut profile.options.experience;
+    let mut touched = false;
+    let mut read = |key: &str, on_when: &str, field: &mut bool| {
+        if let Some(v) = flag(key) {
+            *field = v == on_when;
+            touched = true;
+        }
+    };
+    read("disable wallpaper", "0", &mut e.wallpaper);
+    read("allow font smoothing", "1", &mut e.font_smoothing);
+    read("allow desktop composition", "1", &mut e.desktop_composition);
+    read("disable full window drag", "0", &mut e.window_drag);
+    read("disable menu anims", "0", &mut e.menu_animations);
+    read("disable themes", "0", &mut e.visual_styles);
+    read("compression", "1", &mut e.compression);
+    if let Some(bpp) = flag("session bpp").and_then(|v| v.parse::<u8>().ok()).filter(|b| Experience::COLOR_DEPTHS.contains(b)) {
+        e.color_depth = bpp;
+        touched = true;
+    }
+    if touched {
+        profile.options.speed = ConnectionSpeed::matching(e);
+    }
     let size = |k: &str| fields.get(k).and_then(|v| v.parse::<u32>().ok()).filter(|&v| v >= 200);
     if let (Some(w), Some(h)) = (size("desktopwidth"), size("desktopheight")) {
         profile.options.resolution = Resolution::fixed(w, h);
@@ -506,6 +541,32 @@ mod rdp_tests {
         assert_eq!(p.endpoint.username.as_deref(), Some("CORP\\alice"));
         assert!(!p.options.clipboard);
         assert_eq!(p.options.resolution, Resolution::Fixed { width: 2560, height: 1440 });
+    }
+
+    #[test]
+    fn rdp_file_experience() {
+        // The Experience lines of a real mstsc file.
+        let src = "full address:s:pc
+disable wallpaper:i:0
+allow font smoothing:i:0
+allow desktop composition:i:0
+                   disable full window drag:i:1
+disable menu anims:i:1
+disable themes:i:0
+session bpp:i:32
+                   compression:i:1
+autoreconnection enabled:i:1
+";
+        let p = import_rdp_file(src.as_bytes(), "pc.rdp").unwrap();
+        let e = p.options.experience;
+        assert!(e.wallpaper && e.visual_styles && e.compression);
+        assert!(!e.font_smoothing && !e.desktop_composition && !e.window_drag && !e.menu_animations);
+        assert_eq!(p.options.speed, ConnectionSpeed::Custom);
+        assert!(p.options.auto_reconnect);
+        // Without Experience lines the defaults stay.
+        let plain = import_rdp_file(b"full address:s:pc
+", "pc.rdp").unwrap();
+        assert_eq!(plain.options.speed, ConnectionSpeed::Lan);
     }
 
     #[test]

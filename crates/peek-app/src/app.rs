@@ -129,6 +129,60 @@ fn open_in_file_manager(path: &std::path::Path) {
     let _ = std::process::Command::new(cmd).arg(path).spawn();
 }
 
+/// RDP Experience settings: a speed preset fills in the effects below it;
+/// changing any of them makes the set Custom.
+fn experience_editor(ui: &mut egui::Ui, o: &mut peek_store::ProfileOptions) {
+    use peek_core::{ConnectionSpeed, Experience};
+    egui::CollapsingHeader::new(RichText::new(format!("Experience  ·  {}", o.speed.label())).strong())
+        .id_salt("ed-experience")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Connection speed");
+                egui::ComboBox::from_id_salt("ed-speed").selected_text(o.speed.label()).width(280.0).show_ui(ui, |ui| {
+                    for p in ConnectionSpeed::PRESETS {
+                        if ui.selectable_label(o.speed == p, p.label()).clicked() {
+                            o.speed = p;
+                            o.experience = p.experience();
+                        }
+                    }
+                    if o.speed == ConnectionSpeed::Custom {
+                        let _ = ui.selectable_label(true, ConnectionSpeed::Custom.label());
+                    }
+                });
+            });
+            ui.add_space(2.0);
+            let before = o.experience;
+            let e = &mut o.experience;
+            egui::Grid::new("ed-effects").num_columns(2).spacing([24.0, 4.0]).show(ui, |ui| {
+                ui.checkbox(&mut e.wallpaper, "Desktop background");
+                ui.checkbox(&mut e.font_smoothing, "Font smoothing");
+                ui.end_row();
+                ui.checkbox(&mut e.desktop_composition, "Desktop composition");
+                ui.checkbox(&mut e.window_drag, "Window contents while dragging");
+                ui.end_row();
+                ui.checkbox(&mut e.menu_animations, "Menu and window animation");
+                ui.checkbox(&mut e.visual_styles, "Visual styles");
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Colors");
+                egui::ComboBox::from_id_salt("ed-depth").selected_text(Experience::color_depth_label(e.color_depth)).show_ui(ui, |ui| {
+                    for d in Experience::COLOR_DEPTHS {
+                        ui.selectable_value(&mut e.color_depth, d, Experience::color_depth_label(d));
+                    }
+                });
+            });
+            ui.checkbox(&mut e.compression, "Compress the stream (saves bandwidth, costs some CPU)");
+            if e.color_depth != 32 {
+                ui.label(RichText::new("Below 32-bit the server cannot use RemoteFX and falls back to plain bitmaps.").small().weak());
+            }
+            if o.experience != before {
+                o.speed = ConnectionSpeed::matching(&o.experience);
+            }
+        });
+}
+
 /// Screen size choice: match the window, a common preset, or a custom size.
 fn resolution_picker(ui: &mut egui::Ui, res: &mut Resolution, custom: &mut bool, protocol: Protocol) {
     ui.vertical(|ui| {
@@ -1188,6 +1242,11 @@ impl PeekApp {
                     ui.end_row();
                 });
                 ui.add_space(4.0);
+                if ed.profile.endpoint.protocol == Protocol::Rdp {
+                    experience_editor(ui, &mut ed.profile.options);
+                    ui.add_space(4.0);
+                }
+                ui.checkbox(&mut ed.profile.options.auto_reconnect, "Reconnect if the connection drops");
                 ui.checkbox(&mut ed.profile.options.clipboard, "Share the clipboard");
                 ui.checkbox(&mut ed.profile.options.audio, "Play remote audio");
                 ui.checkbox(&mut ed.profile.options.view_only, "View only (send no input)");

@@ -195,6 +195,7 @@ impl SessionView {
                 clipboard: self.options.clipboard,
                 audio: self.options.audio,
                 keyboard_layout,
+                experience: self.options.experience,
             },
         };
         let events = sctx.events.clone();
@@ -305,7 +306,7 @@ impl SessionView {
                         }
                     }
                     // Dropped connections come back on their own; logoffs do not.
-                    if error && self.ever_connected && (self.attempts as usize) < RECONNECT_DELAYS.len() {
+                    if error && self.options.auto_reconnect && self.ever_connected && (self.attempts as usize) < RECONNECT_DELAYS.len() {
                         let delay = Duration::from_secs(RECONNECT_DELAYS[self.attempts as usize]);
                         self.attempts += 1;
                         self.reconnect = Some((Instant::now() + delay, self.attempts));

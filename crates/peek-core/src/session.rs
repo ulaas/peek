@@ -6,6 +6,7 @@
 //! two channels: commands (UI → backend) and events (backend → UI).
 
 use crate::endpoint::Endpoint;
+use crate::experience::Experience;
 use crate::frame::SharedFrame;
 use crate::input::InputEvent;
 use std::sync::Arc;
@@ -41,6 +42,8 @@ pub struct SessionOptions {
     pub audio: bool,
     /// Windows keyboard layout id (e.g. 0x0409 US) sent to RDP servers.
     pub keyboard_layout: u32,
+    /// RDP visual effects, color depth and compression.
+    pub experience: Experience,
 }
 
 impl Default for SessionOptions {
@@ -53,6 +56,7 @@ impl Default for SessionOptions {
             clipboard: true,
             audio: true,
             keyboard_layout: 0x0409,
+            experience: Experience::default(),
         }
     }
 }
