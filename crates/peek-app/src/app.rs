@@ -70,6 +70,7 @@ enum Command {
     ToggleRecording,
     Home,
     About,
+    ExportMp4,
 }
 
 struct CertWarning {
@@ -293,6 +294,8 @@ impl PeekApp {
             last_shown: None,
             logo: logo::texture(&cc.egui_ctx),
         };
+        // Started with a file or address: that tab gets the keyboard, not quick connect.
+        app.focus_quick = arg.is_none();
         match arg {
             Some(a) if a.to_lowercase().ends_with(".peekrec") => app.open_recording(PathBuf::from(a)),
             Some(a) if a.to_lowercase().ends_with(".rdp") => app.import_rdp(std::path::Path::new(&a)),
@@ -589,6 +592,22 @@ impl PeekApp {
             }
             Command::Home => self.active = None,
             Command::About => self.about_open = true,
+            Command::ExportMp4 => {
+                // The recording on screen, or one picked from disk.
+                if !matches!(self.active.and_then(|i| self.tabs.get(i)), Some(Tab::Player(_))) {
+                    let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Peek recording", &["peekrec"])
+                        .set_directory(self.store.recordings_dir())
+                        .pick_file()
+                    else {
+                        return;
+                    };
+                    self.open_recording(path);
+                }
+                if let Some(Tab::Player(p)) = self.active.and_then(|i| self.tabs.get_mut(i)) {
+                    p.export_dialog(ctx);
+                }
+            }
         }
     }
 
@@ -1482,6 +1501,7 @@ impl PeekApp {
             ("New connection…".to_string(), Command::NewConnection),
             ("Home".into(), Command::Home),
             ("Open recording…".into(), Command::OpenRecording),
+            ("Export recording to MP4…".into(), Command::ExportMp4),
             ("Import .rdp files…".into(), Command::ImportRdp),
             ("Open recordings folder".into(), Command::OpenRecordingsFolder),
             ("Toggle full screen".into(), Command::ToggleFullscreen),

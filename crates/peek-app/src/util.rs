@@ -54,6 +54,30 @@ pub fn ago(unix: u64) -> String {
     }
 }
 
+/// Open a file with its default application.
+pub fn open_file(path: &std::path::Path) {
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+}
+
+/// Show a file selected in the file manager (its folder elsewhere).
+pub fn reveal_file(path: &std::path::Path) {
+    #[cfg(windows)]
+    {
+        let mut arg = std::ffi::OsString::from("/select,");
+        arg.push(path);
+        let _ = std::process::Command::new("explorer").arg(arg).spawn();
+    }
+    #[cfg(not(windows))]
+    if let Some(dir) = path.parent() {
+        open_file(dir);
+    }
+}
+
 pub fn safe_file_name(s: &str) -> String {
     s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '_' }).collect()
 }

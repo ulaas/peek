@@ -19,6 +19,9 @@
 //! off (crash, power loss) is readable up to its last complete segment, and
 //! the player can seek by jumping to the nearest keyframe segment.
 
+#[cfg(feature = "mp4")]
+pub mod export;
+
 use anyhow::{Context, bail, ensure};
 use peek_core::{Framebuffer, Rect};
 use std::fs::File;

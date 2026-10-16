@@ -14,9 +14,9 @@ Working today:
 - Command palette (Ctrl+K), floating session toolbar, full screen, live thumbnails of open sessions
 - Keyboard grab on Windows: Windows key, Alt+Tab and Print Screen go to the remote computer
 - Auto-reconnect with backoff, Wake-on-LAN, screenshot to clipboard
-- Lossless session recording (`.peekrec`) with a built-in player
+- Lossless session recording (`.peekrec`) with a built-in player and H.264 MP4 export
 
-Not yet: MP4 export, SSH, RD Gateway, file clipboard, H.264 (EGFX).
+Not yet: SSH, RD Gateway, file clipboard, H.264 (EGFX).
 
 The RDP path has not yet been tested against a live Windows host; VNC is tested end to end against the bundled test server.
 
@@ -47,6 +47,7 @@ Shortcuts other than Ctrl+Alt+Enter go to the remote computer while a session ha
 ./scripts/dev.ps1 build            # cargo build, then target/ hygiene
 ./scripts/dev.ps1 test --workspace
 cargo run -p peek-vnc --example testserver -- 5999 [password]   # local VNC test server
+cargo run -p peek-record --features mp4 --example export -- in.peekrec out.mp4 [--check frame.bmp]
 ```
 
 Disk use is kept in check by the build profiles (dependencies built without debug info) and `scripts/hygiene.ps1`. The script removes superseded build outputs older than 3 days and runs `cargo clean` if `target/` passes 12 GB. `dev.ps1` runs it after every cargo command.
