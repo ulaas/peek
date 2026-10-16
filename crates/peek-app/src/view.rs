@@ -13,7 +13,7 @@ use peek_core::{
     SessionCommand, SessionEvent, SessionHandle, SessionOptions, new_session,
 };
 use peek_record::Recorder;
-use peek_store::{ProfileOptions, ScaleMode};
+use peek_store::{ProfileOptions, Resolution, ScaleMode};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -169,7 +169,10 @@ impl SessionView {
     ) {
         self.disconnect();
         self.last_creds = Some(credentials.clone());
-        let (w, h) = (desired.0.max(640), desired.1.max(480));
+        let (w, h) = match self.options.resolution {
+            Resolution::Window => (desired.0.max(640), desired.1.max(480)),
+            Resolution::Fixed { width, height } => (width, height),
+        };
         let (handle, sctx) = new_session(w, h);
         let repaint = ctx.clone();
         handle.frame.set_waker(move || repaint.request_repaint());
@@ -595,7 +598,7 @@ impl SessionView {
 
     /// Resize the remote desktop to the window, debounced.
     fn follow_window_size(&mut self, ctx: &egui::Context, area: ERect) {
-        if !self.options.resize_remote || !matches!(self.phase, Phase::Connected) {
+        if self.options.resolution != Resolution::Window || !matches!(self.phase, Phase::Connected) {
             return;
         }
         let ppp = ctx.pixels_per_point();

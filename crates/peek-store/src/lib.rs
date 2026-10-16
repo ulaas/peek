@@ -32,7 +32,10 @@ impl Paths {
 fn load<T: DeserializeOwned + Default>(path: &Path) -> T {
     match std::fs::read_to_string(path) {
         Ok(s) => toml::from_str(&s).unwrap_or_else(|e| {
-            tracing::warn!("ignoring unreadable {}: {e}", path.display());
+            // Keep the original: the next save would otherwise replace it with defaults.
+            let backup = path.with_extension("toml.unreadable");
+            let _ = std::fs::copy(path, &backup);
+            tracing::warn!("ignoring unreadable {} (kept a copy at {}): {e}", path.display(), backup.display());
             T::default()
         }),
         Err(_) => T::default(),
@@ -78,6 +81,53 @@ impl ScaleMode {
     }
 }
 
+/// Remote desktop size for a connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase", tag = "mode")]
+pub enum Resolution {
+    /// Match the window and follow it when it is resized (RDP display
+    /// control, VNC SetDesktopSize).
+    Window,
+    /// Ask for this size and keep it.
+    Fixed { width: u32, height: u32 },
+}
+
+impl Default for Resolution {
+    fn default() -> Self {
+        Resolution::Fixed { width: 1920, height: 1080 }
+    }
+}
+
+impl Resolution {
+    /// Common display sizes offered in the editor.
+    pub const PRESETS: [(u32, u32); 12] = [
+        (1280, 720),
+        (1280, 800),
+        (1366, 768),
+        (1440, 900),
+        (1600, 900),
+        (1680, 1050),
+        (1920, 1080),
+        (1920, 1200),
+        (2560, 1080),
+        (2560, 1440),
+        (3440, 1440),
+        (3840, 2160),
+    ];
+
+    /// RDP accepts 200..=8192 pixels per side; even widths avoid server quirks.
+    pub fn fixed(width: u32, height: u32) -> Self {
+        Resolution::Fixed { width: width.clamp(200, 8192) & !1, height: height.clamp(200, 8192) }
+    }
+
+    pub fn label(self) -> String {
+        match self {
+            Resolution::Window => "Match window".into(),
+            Resolution::Fixed { width, height } => format!("{width} × {height}"),
+        }
+    }
+}
+
 fn yes() -> bool {
     true
 }
@@ -86,10 +136,8 @@ fn yes() -> bool {
 pub struct ProfileOptions {
     #[serde(default)]
     pub scale: ScaleMode,
-    /// Ask the server to match the window size (RDP display control, VNC
-    /// SetDesktopSize).
-    #[serde(default = "yes")]
-    pub resize_remote: bool,
+    #[serde(default)]
+    pub resolution: Resolution,
     #[serde(default)]
     pub view_only: bool,
     #[serde(default = "yes")]
@@ -103,7 +151,7 @@ pub struct ProfileOptions {
 
 impl Default for ProfileOptions {
     fn default() -> Self {
-        Self { scale: ScaleMode::Fit, resize_remote: true, view_only: false, audio: true, clipboard: true, auto_record: false }
+        Self { scale: ScaleMode::Fit, resolution: Resolution::default(), view_only: false, audio: true, clipboard: true, auto_record: false }
     }
 }
 
@@ -429,8 +477,11 @@ pub fn import_rdp_file(bytes: &[u8], file_name: &str) -> anyhow::Result<Profile>
     if matches!(flag("audiomode"), Some("1") | Some("2")) {
         profile.options.audio = false;
     }
-    if flag("dynamic resolution") == Some("0") {
-        profile.options.resize_remote = false;
+    let size = |k: &str| fields.get(k).and_then(|v| v.parse::<u32>().ok()).filter(|&v| v >= 200);
+    if let (Some(w), Some(h)) = (size("desktopwidth"), size("desktopheight")) {
+        profile.options.resolution = Resolution::fixed(w, h);
+    } else if flag("dynamic resolution") == Some("1") {
+        profile.options.resolution = Resolution::Window;
     }
     if flag("smart sizing") == Some("0") && flag("dynamic resolution") == Some("0") {
         profile.options.scale = ScaleMode::Native;
@@ -444,7 +495,7 @@ mod rdp_tests {
 
     #[test]
     fn utf16_rdp_file() {
-        let src = "screen mode id:i:2\r\nfull address:s:srv01.corp:3390\r\nusername:s:CORP\\alice\r\nredirectclipboard:i:0\r\n";
+        let src = "screen mode id:i:2\r\ndesktopwidth:i:2560\r\ndesktopheight:i:1440\r\nfull address:s:srv01.corp:3390\r\nusername:s:CORP\\alice\r\nredirectclipboard:i:0\r\n";
         let mut bytes = vec![0xFF, 0xFE];
         for u in src.encode_utf16() {
             bytes.extend_from_slice(&u.to_le_bytes());
@@ -454,6 +505,23 @@ mod rdp_tests {
         assert_eq!((p.endpoint.host.as_str(), p.endpoint.port), ("srv01.corp", 3390));
         assert_eq!(p.endpoint.username.as_deref(), Some("CORP\\alice"));
         assert!(!p.options.clipboard);
+        assert_eq!(p.options.resolution, Resolution::Fixed { width: 2560, height: 1440 });
+    }
+
+    #[test]
+    fn resolution_default_and_legacy_profiles() {
+        assert_eq!(ProfileOptions::default().resolution, Resolution::Fixed { width: 1920, height: 1080 });
+        // Profiles saved before the setting existed still load, with the default size.
+        let old: ProfileOptions = toml::from_str("scale = \"fit\"
+resize_remote = true
+").unwrap();
+        assert_eq!(old.resolution, Resolution::default());
+        for r in [Resolution::Window, Resolution::fixed(2560, 1440)] {
+            let o = ProfileOptions { resolution: r, ..Default::default() };
+            let text = toml::to_string_pretty(&o).unwrap();
+            assert_eq!(toml::from_str::<ProfileOptions>(&text).unwrap(), o, "{text}");
+        }
+        assert_eq!(Resolution::fixed(1921, 50), Resolution::Fixed { width: 1920, height: 200 });
     }
 
     #[test]

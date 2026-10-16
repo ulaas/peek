@@ -10,6 +10,7 @@ Working today:
 - **VNC**: in-house RFB 3.3–3.8 client with None/VNC auth and Raw, CopyRect, RRE, Hextile, ZRLE, Tight + JPEG decoders
 - Tabs, connection library (groups, favorites, search, recent), OS keychain for passwords, `.rdp` import
 - User names as `DOMAIN\user`, `user@domain` or `MicrosoftAccount\you@outlook.com` (Microsoft accounts are sent as a UPN)
+- Per-connection screen size: match the window, a preset or custom (default 1920 × 1080)
 - Command palette (Ctrl+K), floating session toolbar, full screen, live thumbnails of open sessions
 - Keyboard grab on Windows: Windows key, Alt+Tab and Print Screen go to the remote computer
 - Auto-reconnect with backoff, Wake-on-LAN, screenshot to clipboard
@@ -62,4 +63,4 @@ Disk use is kept in check by the build profiles (dependencies built without debu
 
 Logging: set `PEEK_LOG=debug`. Rendering defaults to DX12 and the power-saving GPU on Windows; override with `WGPU_BACKEND` / `WGPU_POWER_PREF`.
 
-Icons: [Phosphor](https://phosphoricons.com) (MIT).
+Icons: [Phosphor](https://phosphoricons.com) regular and fill (MIT).

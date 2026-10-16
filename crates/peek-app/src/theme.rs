@@ -59,9 +59,43 @@ fn tune(style: &mut Style, dark: bool) {
     v.widgets.inactive.bg_stroke = Stroke::NONE;
     v.widgets.hovered.bg_stroke = Stroke::new(1.0, line);
 
+    v.widgets.hovered.weak_bg_fill = lerp(faint, text, 0.06);
+    v.widgets.hovered.bg_fill = lerp(faint, text, 0.06);
+    v.widgets.active.weak_bg_fill = lerp(faint, text, 0.12);
+    v.widgets.active.bg_fill = lerp(faint, text, 0.12);
+    for w in [&mut v.widgets.hovered, &mut v.widgets.active] {
+        w.expansion = 0.0;
+    }
+    // Hand over anything clickable; labels are not selectable text (no I-beam
+    // over list rows and captions).
+    v.interact_cursor = Some(egui::CursorIcon::PointingHand);
+    v.window_shadow = egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(if dark { 110 } else { 38 }) };
+    v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(if dark { 90 } else { 30 }) };
+    v.striped = false;
+    style.interaction.selectable_labels = false;
+    style.interaction.tooltip_delay = 0.35;
+    style.animation_time = 0.14;
+
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
     style.spacing.interact_size.y = 26.0;
+    style.spacing.scroll = egui::style::ScrollStyle::floating();
+    style.spacing.scroll.floating_width = 6.0;
+    style.spacing.combo_height = 320.0;
+
+    use egui::{FontFamily::Proportional, FontId, TextStyle};
+    style.text_styles = [
+        (TextStyle::Heading, FontId::new(20.0, Proportional)),
+        (TextStyle::Body, FontId::new(13.5, Proportional)),
+        (TextStyle::Button, FontId::new(13.5, Proportional)),
+        (TextStyle::Small, FontId::new(11.0, Proportional)),
+        (TextStyle::Monospace, FontId::new(12.5, egui::FontFamily::Monospace)),
+    ]
+    .into();
+}
+
+fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
+    crate::widgets::lerp_color(a, b, t)
 }
 
 pub fn install(ctx: &egui::Context, theme: peek_store::Theme) {

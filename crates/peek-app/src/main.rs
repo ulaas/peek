@@ -8,6 +8,7 @@ mod player;
 mod theme;
 mod util;
 mod view;
+mod widgets;
 
 fn main() -> eframe::Result {
     // Rendering defaults: DX12 on Windows (no third-party Vulkan overlay
