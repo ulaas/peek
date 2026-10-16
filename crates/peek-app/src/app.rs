@@ -1,6 +1,7 @@
 use crate::grab::{Grab, GrabMode};
 use crate::icons;
 use crate::keymap;
+use crate::logo;
 use crate::player::PlayerView;
 use crate::theme;
 use crate::util;
@@ -66,6 +67,7 @@ enum Command {
     CtrlAltDel,
     ToggleRecording,
     Home,
+    About,
 }
 
 struct CertWarning {
@@ -98,6 +100,8 @@ pub struct PeekApp {
     window_focused: bool,
     /// Highlighted row in the connection list.
     selected: Option<Uuid>,
+    about_open: bool,
+    logo: egui::TextureHandle,
 }
 
 /// Credentials are keyed by endpoint so quick connect and saved
@@ -166,6 +170,16 @@ fn resolution_picker(ui: &mut egui::Ui, res: &mut Resolution, custom: &mut bool,
     });
 }
 
+/// Hairline around the undecorated window so it stays distinct from what is behind it.
+fn window_border(ctx: &egui::Context) {
+    if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
+        return;
+    }
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("window-border")));
+    let color = ctx.global_style().visuals.widgets.noninteractive.bg_stroke.color;
+    painter.rect_stroke(ctx.content_rect(), 0.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Inside);
+}
+
 /// Send a Wake-on-LAN magic packet to the broadcast address.
 fn wake_on_lan(mac: &str) -> anyhow::Result<()> {
     let bytes: Vec<u8> = mac
@@ -213,6 +227,8 @@ impl PeekApp {
             grab: Grab::new(&cc.egui_ctx),
             window_focused: true,
             selected: None,
+            about_open: false,
+            logo: logo::texture(&cc.egui_ctx),
         };
         match arg {
             Some(a) if a.to_lowercase().ends_with(".peekrec") => app.open_recording(PathBuf::from(a)),
@@ -509,6 +525,7 @@ impl PeekApp {
                 }
             }
             Command::Home => self.active = None,
+            Command::About => self.about_open = true,
         }
     }
 
@@ -533,16 +550,30 @@ impl PeekApp {
 
     // ------------------------------------------------------------------ ui parts
 
+    /// Custom title bar: logo, tabs, a drag area, quick connect, settings and
+    /// the window buttons. Dragging the empty space moves the window (with
+    /// Windows snapping); double-click maximizes.
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let mut close = None;
         let mut cmd = None;
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        let height = 44.0;
         egui::Panel::top("topbar")
-            .exact_size(44.0)
-            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin::symmetric(8, 7)))
+            .exact_size(height)
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin { left: 10, right: 0, top: 0, bottom: 0 }))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
+                    let (rect, logo) = ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::click());
+                    let hover = ui.ctx().animate_bool_with_time(logo.id, logo.hovered(), 0.12);
+                    let r = rect.expand(hover);
+                    ui.painter().image(self.logo.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                    let tip = format!("Peek {}  ·  {}", logo::VERSION, logo::short_commit());
+                    if logo.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip).clicked() {
+                        cmd = Some(Command::About);
+                    }
+                    ui.add_space(8.0);
                     let tip = if self.store.settings.sidebar_open { "Hide connections" } else { "Show connections" };
                     if widgets::icon_button(ui, icons::SIDEBAR_SIMPLE, tip).clicked() {
                         cmd = Some(Command::ToggleSidebar);
@@ -565,11 +596,27 @@ impl PeekApp {
                         }
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if widgets::icon_button(ui, icons::GEAR, "Settings").clicked() {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        let size = Vec2::new(46.0, height);
+                        if widgets::window_button(ui, widgets::WindowButton::Close, size).on_hover_text("Close").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        let (kind, tip) = if maximized { (widgets::WindowButton::Restore, "Restore") } else { (widgets::WindowButton::Maximize, "Maximize") };
+                        if widgets::window_button(ui, kind, size).on_hover_text(tip).clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                        }
+                        if widgets::window_button(ui, widgets::WindowButton::Minimize, size).on_hover_text("Minimize").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+                        ui.add_space(10.0);
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        if widgets::nav_chip(ui, egui::Id::unique("settings-chip"), icons::GEAR, "Settings", self.settings_open)
+                            .on_hover_text("Settings (Ctrl+,)")
+                            .clicked()
+                        {
                             cmd = Some(Command::Settings);
                         }
-                        ui.add_space(4.0);
-                        let (rect, _) = ui.allocate_exact_size(Vec2::new(290.0, 30.0), egui::Sense::hover());
+                        let (rect, _) = ui.allocate_exact_size(Vec2::new(260.0, 30.0), egui::Sense::hover());
                         let resp = ui
                             .scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
                                 widgets::search_field(ui, &mut self.quick, icons::LIGHTNING, "Connect to…   Ctrl+L", egui::Id::unique("quick-top"), 13.0, 30.0)
@@ -582,6 +629,16 @@ impl PeekApp {
                         if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !self.quick.trim().is_empty() {
                             cmd = Some(Command::QuickConnect(self.quick.clone()));
                         }
+                        // Whatever is left between the tabs and the controls moves the window.
+                        let rest = ui.available_rect_before_wrap();
+                        if rest.width() > 4.0 {
+                            let drag = ui.interact(rest, egui::Id::unique("titlebar-drag"), egui::Sense::click_and_drag());
+                            if drag.double_clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                            } else if drag.drag_started_by(egui::PointerButton::Primary) {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                            }
+                        }
                     });
                 });
             });
@@ -590,6 +647,103 @@ impl PeekApp {
         }
         if let Some(c) = cmd {
             self.run_command(&ctx, c);
+        }
+    }
+
+    /// Without native decorations the edges resize the window: hover shows the
+    /// resize cursor, a press hands the drag to the OS.
+    fn edge_resize(&self, ctx: &egui::Context) {
+        if self.fullscreen || ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
+            return;
+        }
+        let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) else { return };
+        let r = ctx.content_rect();
+        let m = 5.0;
+        let (l, rt, t, b) = (pos.x <= r.left() + m, pos.x >= r.right() - m, pos.y <= r.top() + m, pos.y >= r.bottom() - m);
+        use egui::{CursorIcon as C, ResizeDirection as D};
+        let (dir, icon) = match (l, rt, t, b) {
+            (true, _, true, _) => (D::NorthWest, C::ResizeNwSe),
+            (_, true, true, _) => (D::NorthEast, C::ResizeNeSw),
+            (true, _, _, true) => (D::SouthWest, C::ResizeNeSw),
+            (_, true, _, true) => (D::SouthEast, C::ResizeNwSe),
+            (true, ..) => (D::West, C::ResizeHorizontal),
+            (_, true, ..) => (D::East, C::ResizeHorizontal),
+            (_, _, true, _) => (D::North, C::ResizeVertical),
+            (_, _, _, true) => (D::South, C::ResizeVertical),
+            _ => return,
+        };
+        ctx.set_cursor_icon(icon);
+        if ctx.input(|i| i.pointer.primary_pressed()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(dir));
+        }
+    }
+
+    fn about_window(&mut self, ctx: &egui::Context) {
+        if !self.about_open {
+            return;
+        }
+        let mut open = true;
+        let mut copied = None;
+        egui::Window::new("About Peek")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .title_bar(false)
+            .fixed_size([360.0, 0.0])
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.add_space(10.0);
+                ui.vertical_centered(|ui| {
+                    ui.add(egui::Image::new((self.logo.id(), Vec2::splat(72.0))));
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Peek").size(24.0).strong());
+                    ui.label(RichText::new("Fast, quiet remote desktop").weak());
+                    ui.add_space(12.0);
+                });
+                egui::Grid::new("about-grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
+                    ui.label(RichText::new("Version").weak());
+                    ui.label(logo::VERSION);
+                    ui.end_row();
+                    ui.label(RichText::new("Commit").weak());
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("{}  {}", icons::GIT_COMMIT, logo::short_commit())).monospace());
+                        if widgets::icon_button_sized(ui, icons::COPY, "Copy the full version line", 22.0, None).clicked() {
+                            ui.ctx().copy_text(logo::version_line());
+                            copied = Some(());
+                        }
+                    });
+                    ui.end_row();
+                    if logo::COMMIT.ends_with("-dirty") {
+                        ui.label("");
+                        ui.label(RichText::new("built with uncommitted changes").small().color(theme::WARN));
+                        ui.end_row();
+                    }
+                    ui.label(RichText::new("Built").weak());
+                    ui.label(format!("{} · {}", logo::BUILD_DATE, logo::PROFILE));
+                    ui.end_row();
+                    ui.label(RichText::new("Settings").weak());
+                    ui.label(RichText::new(self.store.paths.config.display().to_string()).small());
+                    ui.end_row();
+                });
+                ui.add_space(12.0);
+                ui.label(
+                    RichText::new("RDP by IronRDP · UI by egui · icons by Phosphor (MIT). Peek's VNC client, recorder and widgets are its own.")
+                        .small()
+                        .weak(),
+                );
+                ui.add_space(10.0);
+                ui.vertical_centered(|ui| {
+                    if widgets::primary_button(ui, "Close", Vec2::new(110.0, 32.0)).clicked() {
+                        self.about_open = false;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        if !open || ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.about_open = false;
+        }
+        if copied.is_some() {
+            self.toast("Version copied", ToastKind::Success);
         }
     }
 
@@ -663,7 +817,8 @@ impl PeekApp {
                     }
                 }
 
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                let footer_h = 40.0;
+                egui::ScrollArea::vertical().auto_shrink([false, false]).max_height((ui.available_height() - footer_h).max(60.0)).show(ui, |ui| {
                     if results.is_empty() {
                         ui.add_space(28.0);
                         ui.vertical_centered(|ui| {
@@ -756,6 +911,19 @@ impl PeekApp {
                             body(ui);
                         }
                     }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    if widgets::nav_chip(ui, egui::Id::unique("side-settings"), icons::GEAR, "Settings", self.settings_open).on_hover_text("Ctrl+,").clicked() {
+                        cmd = Some(Command::Settings);
+                    }
+                    if widgets::nav_chip(ui, egui::Id::unique("side-about"), icons::INFO, "About", self.about_open).clicked() {
+                        cmd = Some(Command::About);
+                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(logo::short_commit()).size(10.5).monospace().weak()).on_hover_text(logo::version_line());
+                    });
                 });
             });
         if open != self.store.settings.sidebar_open {
@@ -1117,9 +1285,12 @@ impl PeekApp {
                     }
                 });
                 ui.add_space(8.0);
-                ui.label(RichText::new("About").strong());
-                ui.label(format!("Peek {} · keyboard layout {:08X}", env!("CARGO_PKG_VERSION"), self.keyboard_layout));
-                ui.label(RichText::new(format!("Settings in {}", self.store.paths.config.display())).small().weak());
+                ui.horizontal(|ui| {
+                    if ui.button(format!("{}  About Peek", icons::INFO)).clicked() {
+                        cmd = Some(Command::About);
+                    }
+                    ui.label(RichText::new(format!("{} · keyboard layout {:08X}", logo::short_commit(), self.keyboard_layout)).small().weak());
+                });
             });
         if changed {
             self.save_settings();
@@ -1152,6 +1323,7 @@ impl PeekApp {
             ("Toggle full screen".into(), Command::ToggleFullscreen),
             ("Toggle connections sidebar".into(), Command::ToggleSidebar),
             ("Settings".into(), Command::Settings),
+            ("About Peek".into(), Command::About),
             ("Theme: dark".into(), Command::SetTheme(Theme::Dark)),
             ("Theme: light".into(), Command::SetTheme(Theme::Light)),
             ("Theme: follow system".into(), Command::SetTheme(Theme::System)),
@@ -1336,6 +1508,8 @@ impl PeekApp {
                 cmd = Some(5);
             } else if i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Tab)) {
                 cmd = Some(6);
+            } else if i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Comma)) {
+                cmd = Some(7);
             } else if !text_focus && self.fullscreen && i.consume_key(Modifiers::NONE, Key::Escape) {
                 cmd = Some(5);
             }
@@ -1350,6 +1524,7 @@ impl PeekApp {
                 self.focus_quick = true;
             }
             Some(5) => self.set_fullscreen(ctx, !self.fullscreen),
+            Some(7) => self.settings_open = true,
             Some(6) if !self.tabs.is_empty() => {
                 self.active = Some(self.active.map_or(0, |a| (a + 1) % self.tabs.len()));
             }
@@ -1449,8 +1624,13 @@ impl eframe::App for PeekApp {
         self.editor_window(&ctx);
         self.settings_window(&ctx);
         self.palette_window(&ctx);
+        self.about_window(&ctx);
         self.dialogs(&ctx);
         self.toasts(&ctx);
+        if !self.fullscreen {
+            self.edge_resize(&ctx);
+            window_border(&ctx);
+        }
     }
 
     fn on_exit(&mut self) {

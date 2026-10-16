@@ -444,3 +444,51 @@ pub fn nav_chip(ui: &mut Ui, id: Id, icon: &str, label: &str, selected: bool) ->
     ui.painter().galley(rect.center() - g.size() / 2.0, g, color);
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum WindowButton {
+    Minimize,
+    Maximize,
+    Restore,
+    Close,
+}
+
+/// Caption button in the Windows style: full title bar height, glyphs drawn
+/// with hairlines, close turns red on hover.
+pub fn window_button(ui: &mut Ui, kind: WindowButton, size: Vec2) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let t = hover_t(ui, resp.id, resp.hovered());
+    let v = ui.visuals();
+    let (fill, fg) = if kind == WindowButton::Close {
+        let red = Color32::from_rgb(196, 43, 28);
+        (red.gamma_multiply(t * if resp.is_pointer_button_down_on() { 0.8 } else { 1.0 }), lerp_color(v.text_color(), Color32::WHITE, t))
+    } else {
+        (hover_fill(ui).gamma_multiply(t * if resp.is_pointer_button_down_on() { 2.0 } else { 1.2 }), v.text_color())
+    };
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::ZERO, fill);
+    let c = rect.center();
+    let stroke = Stroke::new(1.0, fg);
+    let h = 5.0;
+    match kind {
+        WindowButton::Minimize => {
+            p.line_segment([c + Vec2::new(-h, 0.0), c + Vec2::new(h, 0.0)], stroke);
+        }
+        WindowButton::Maximize => {
+            p.rect_stroke(Rect::from_center_size(c, Vec2::splat(2.0 * h)), CornerRadius::same(1), stroke, egui::StrokeKind::Inside);
+        }
+        WindowButton::Restore => {
+            let front = Rect::from_center_size(c + Vec2::new(-1.0, 1.0), Vec2::splat(2.0 * h - 2.0));
+            p.rect_stroke(front, CornerRadius::same(1), stroke, egui::StrokeKind::Inside);
+            p.line(
+                vec![front.left_top() + Vec2::new(2.0, -2.0), front.right_top() + Vec2::new(2.0, -2.0), front.right_bottom() + Vec2::new(2.0, -2.0)],
+                stroke,
+            );
+        }
+        WindowButton::Close => {
+            p.line_segment([c + Vec2::new(-h, -h), c + Vec2::new(h, h)], stroke);
+            p.line_segment([c + Vec2::new(-h, h), c + Vec2::new(h, -h)], stroke);
+        }
+    }
+    resp
+}
