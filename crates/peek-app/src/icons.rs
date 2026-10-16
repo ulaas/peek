@@ -4,6 +4,7 @@
 pub const ARROW_CLOCKWISE: &str = "\u{E036}";
 pub const ARROW_RIGHT: &str = "\u{E06C}";
 pub const CAMERA: &str = "\u{E10E}";
+pub const CARET_DOWN: &str = "\u{E136}";
 pub const CHART_BAR: &str = "\u{E150}";
 pub const COPY: &str = "\u{E1CA}";
 pub const CORNERS_OUT: &str = "\u{E1D0}";

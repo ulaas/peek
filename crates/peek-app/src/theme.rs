@@ -72,6 +72,12 @@ fn tune(style: &mut Style, dark: bool) {
     v.window_shadow = egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(if dark { 110 } else { 38 }) };
     v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(if dark { 90 } else { 30 }) };
     v.striped = false;
+    // Grid-fitted glyphs; no sub-pixel binning, which trades sharpness for spacing.
+    v.text_options.font_hinting = true;
+    v.text_options.subpixel_binning = false;
+    // Unchecked checkboxes and radio buttons need a visible box.
+    v.widgets.inactive.bg_fill = lerp(faint, text, 0.10);
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0, lerp(faint, text, 0.18));
     style.interaction.selectable_labels = false;
     style.interaction.tooltip_delay = 0.35;
     style.animation_time = 0.14;
@@ -88,7 +94,7 @@ fn tune(style: &mut Style, dark: bool) {
         (TextStyle::Heading, FontId::new(20.0, Proportional)),
         (TextStyle::Body, FontId::new(13.5, Proportional)),
         (TextStyle::Button, FontId::new(13.5, Proportional)),
-        (TextStyle::Small, FontId::new(11.0, Proportional)),
+        (TextStyle::Small, FontId::new(11.5, Proportional)),
         (TextStyle::Monospace, FontId::new(12.5, egui::FontFamily::Monospace)),
     ]
     .into();
@@ -101,10 +107,45 @@ fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
 pub fn install(ctx: &egui::Context, theme: peek_store::Theme) {
     let mut fonts = egui::FontDefinitions::default();
     crate::icons::install(&mut fonts);
+    install_system_fonts(&mut fonts);
     ctx.set_fonts(fonts);
     ctx.style_mut_of(Theme::Dark, |s| tune(s, true));
     ctx.style_mut_of(Theme::Light, |s| tune(s, false));
     apply_preference(ctx, theme);
+}
+
+const SEMIBOLD: &str = "ui-semibold";
+
+/// Heavier face for headings (Segoe UI Semibold on Windows; regular elsewhere).
+pub fn semibold(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(SEMIBOLD.into()))
+}
+
+/// The platform UI fonts, read at startup rather than bundled: Segoe UI and
+/// Cascadia Mono / Consolas on Windows. They carry hinting made for screens,
+/// unlike egui's built-in Ubuntu Light. Missing files keep egui's fonts.
+fn install_system_fonts(fonts: &mut egui::FontDefinitions) {
+    let dir = std::env::var_os("WINDIR").map(|w| std::path::PathBuf::from(w).join("Fonts"));
+    let load = |names: &[&str]| -> Option<Vec<u8>> { names.iter().find_map(|n| std::fs::read(dir.as_ref()?.join(n)).ok()) };
+    let mut put = |key: &str, bytes: Vec<u8>, family: egui::FontFamily| {
+        fonts.font_data.insert(key.into(), egui::FontData::from_owned(bytes).into());
+        fonts.families.entry(family).or_default().insert(0, key.into());
+    };
+    let regular = load(&["segoeui.ttf"]);
+    if let Some(b) = regular.clone() {
+        put("ui", b, egui::FontFamily::Proportional);
+    }
+    if let Some(b) = load(&["CascadiaMono.ttf", "consola.ttf"]) {
+        put("ui-mono", b, egui::FontFamily::Monospace);
+    }
+    // Semibold family: the heavy face first, then everything Proportional has
+    // (icons, symbols) as fallbacks.
+    let mut chain: Vec<String> = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    if let Some(b) = load(&["seguisb.ttf"]) {
+        fonts.font_data.insert("ui-sb".into(), egui::FontData::from_owned(b).into());
+        chain.insert(0, "ui-sb".into());
+    }
+    fonts.families.insert(egui::FontFamily::Name(SEMIBOLD.into()), chain);
 }
 
 pub fn apply_preference(ctx: &egui::Context, theme: peek_store::Theme) {

@@ -199,11 +199,11 @@ pub fn section_header(ui: &mut Ui, id: Id, title: &str, count: usize) -> egui::c
     let rot = egui::emath::Rot2::from_angle(angle);
     let pts = [Vec2::new(-3.5, -1.8), Vec2::new(0.0, 1.8), Vec2::new(3.5, -1.8)].map(|v| c + rot * v);
     ui.painter().line(pts.to_vec(), Stroke::new(1.4, color));
-    let label = ui.painter().layout_no_wrap(title.to_uppercase(), FontId::proportional(11.0), color);
+    let label = ui.painter().layout_no_wrap(title.to_uppercase(), crate::theme::semibold(11.5), color);
     let lx = rect.left() + 20.0;
     let lw = label.size().x;
     ui.painter().galley(Pos2::new(lx, rect.center().y - label.size().y / 2.0), label, color);
-    let n = ui.painter().layout_no_wrap(count.to_string(), FontId::proportional(10.5), weak_color(ui));
+    let n = ui.painter().layout_no_wrap(count.to_string(), FontId::proportional(11.0), weak_color(ui));
     let pill = Rect::from_center_size(Pos2::new(lx + lw + 10.0 + n.size().x / 2.0 + 5.0, rect.center().y), n.size() + Vec2::new(10.0, 3.0));
     ui.painter().rect_filled(pill, CornerRadius::same(8), ui.visuals().faint_bg_color);
     ui.painter().galley(pill.center() - n.size() / 2.0, n, weak_color(ui));
@@ -230,7 +230,7 @@ pub struct RowContent<'a> {
 /// Full-width connection row: protocol tile, name and address, and on hover a
 /// favorite star, a menu and a connect button. Hand cursor across the row.
 pub fn connection_row(ui: &mut Ui, c: RowContent<'_>) -> RowOutput {
-    let height = 46.0;
+    let height = 48.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::click());
     let hovered = ui.rect_contains_pointer(rect) && !ui.ctx().is_being_dragged(resp.id);
     let t = hover_t(ui, c.id, hovered || resp.has_focus());
@@ -262,7 +262,7 @@ pub fn connection_row(ui: &mut Ui, c: RowContent<'_>) -> RowOutput {
         let max_w = rect.right() - 8.0 - actions_w - text_x;
         let title_color = if c.status.is_some() || c.selected { v.strong_text_color() } else { v.text_color() };
         let g1 = elided(ui, c.title, FontId::proportional(13.5), title_color, max_w);
-        let g2 = elided(ui, c.subtitle, FontId::proportional(11.0), v.weak_text_color(), max_w);
+        let g2 = elided(ui, c.subtitle, FontId::proportional(12.0), v.weak_text_color(), max_w);
         let total = g1.size().y + 1.0 + g2.size().y;
         let y = rect.center().y - total / 2.0;
         p.galley(Pos2::new(text_x, y), g1.clone(), title_color);
@@ -324,8 +324,8 @@ pub fn connection_card(ui: &mut Ui, id: Id, size: Vec2, protocol: Protocol, titl
     let x = tile.right() + 12.0;
     let max_w = card.right() - 12.0 - x;
     let g1 = elided(ui, title, FontId::proportional(14.0), v.strong_text_color(), max_w);
-    let g2 = elided(ui, subtitle, FontId::proportional(11.0), v.weak_text_color(), max_w);
-    let g3 = elided(ui, meta, FontId::proportional(10.5), v.weak_text_color().gamma_multiply(0.8), max_w);
+    let g2 = elided(ui, subtitle, FontId::proportional(12.0), v.weak_text_color(), max_w);
+    let g3 = elided(ui, meta, FontId::proportional(11.5), v.weak_text_color().gamma_multiply(0.85), max_w);
     let total = g1.size().y + g2.size().y + g3.size().y + 2.0;
     let mut y = card.center().y - total / 2.0;
     for g in [g1, g2, g3] {
@@ -342,7 +342,7 @@ pub fn connection_card(ui: &mut Ui, id: Id, size: Vec2, protocol: Protocol, titl
 
 /// A keyboard key cap, e.g. `Ctrl`, followed by nothing.
 pub fn key_cap(ui: &mut Ui, key: &str) {
-    let g = ui.painter().layout_no_wrap(key.to_owned(), FontId::monospace(10.5), weak_color(ui));
+    let g = ui.painter().layout_no_wrap(key.to_owned(), FontId::proportional(11.5), weak_color(ui));
     let size = g.size() + Vec2::new(10.0, 5.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let v = ui.visuals();
@@ -362,13 +362,13 @@ pub fn shortcut_hint(ui: &mut Ui, keys: &[&str], label: &str) {
             key_cap(ui, k);
         }
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(label).size(11.5).color(weak_color(ui)));
+        ui.label(egui::RichText::new(label).size(12.0).color(weak_color(ui)));
     });
 }
 
 /// Small uppercase section label.
 pub fn caption(ui: &mut Ui, text: &str) {
-    ui.label(egui::RichText::new(text.to_uppercase()).size(11.0).color(weak_color(ui)).extra_letter_spacing(0.6));
+    ui.label(egui::RichText::new(text.to_uppercase()).font(crate::theme::semibold(11.5)).color(weak_color(ui)).extra_letter_spacing(0.6));
 }
 
 /// Soft accent glow behind the home hero: a mesh fading from tinted to clear.
@@ -491,4 +491,90 @@ pub fn window_button(ui: &mut Ui, kind: WindowButton, size: Vec2) -> Response {
         }
     }
     resp
+}
+
+/// Horizontal tabs with a sliding accent underline. Returns true when the
+/// selection changed.
+pub fn tab_strip(ui: &mut Ui, id: Id, selected: &mut usize, tabs: &[(&str, &str)]) -> bool {
+    let v = ui.visuals().clone();
+    let start = ui.cursor().min;
+    let mut changed = false;
+    let mut spans = Vec::with_capacity(tabs.len());
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for (i, (icon, label)) in tabs.iter().enumerate() {
+            let on = *selected == i;
+            let color = if on { v.strong_text_color() } else { v.text_color() };
+            let font = if on { crate::theme::semibold(13.5) } else { FontId::proportional(13.5) };
+            let g = ui.painter().layout_no_wrap(format!("{icon}  {label}"), font, color);
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 24.0, 34.0), Sense::click());
+            let t = hover_t(ui, resp.id, resp.hovered() && !on);
+            ui.painter().rect_filled(rect.shrink2(Vec2::new(0.0, 3.0)), CornerRadius::same(6), hover_fill(ui).gamma_multiply(t));
+            let c = if on { color } else { lerp_color(v.weak_text_color(), color, 0.4 + 0.6 * t) };
+            ui.painter().galley(rect.center() - g.size() / 2.0, g, c);
+            if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() && !on {
+                *selected = i;
+                changed = true;
+            }
+            spans.push(rect.x_range());
+        }
+    });
+    let bottom = ui.min_rect().bottom().max(start.y + 34.0);
+    let full = Rect::from_min_max(Pos2::new(ui.max_rect().left(), bottom), Pos2::new(ui.max_rect().right(), bottom + 1.0));
+    ui.painter().rect_filled(full, CornerRadius::ZERO, v.widgets.noninteractive.bg_stroke.color);
+    if let Some(span) = spans.get(*selected) {
+        let x = ui.ctx().animate_value_with_time(id.with("x"), span.min + 8.0, 0.16);
+        let w = ui.ctx().animate_value_with_time(id.with("w"), span.span() - 16.0, 0.16);
+        let bar = Rect::from_min_size(Pos2::new(x, bottom - 1.0), Vec2::new(w, 2.5));
+        ui.painter().rect_filled(bar, CornerRadius::same(1), theme::accent(ui));
+    }
+    ui.add_space(4.0);
+    changed
+}
+
+/// Segmented control: one rounded track, the chosen option raised.
+pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> bool {
+    let v = ui.visuals().clone();
+    let font = FontId::proportional(13.0);
+    let widths: Vec<f32> = options.iter().map(|(_, l)| ui.painter().layout_no_wrap((*l).to_owned(), font.clone(), v.text_color()).size().x + 28.0).collect();
+    let size = Vec2::new(widths.iter().sum::<f32>() + 4.0, 30.0);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    ui.painter().rect_filled(rect, CornerRadius::same(8), v.extreme_bg_color);
+    let mut x = rect.left() + 2.0;
+    let mut changed = false;
+    for ((opt, label), w) in options.iter().zip(widths) {
+        let r = Rect::from_min_size(Pos2::new(x, rect.top() + 2.0), Vec2::new(w, size.y - 4.0));
+        let resp = ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        let on = *value == *opt;
+        let t = hover_t(ui, resp.id, resp.hovered());
+        if on {
+            ui.painter().rect_filled(r, CornerRadius::same(6), lerp_color(v.faint_bg_color, v.text_color(), 0.12));
+        } else {
+            ui.painter().rect_filled(r, CornerRadius::same(6), hover_fill(ui).gamma_multiply(t));
+        }
+        let color = if on { v.strong_text_color() } else { v.weak_text_color() };
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, *label, if on { crate::theme::semibold(13.0) } else { font.clone() }, color);
+        if resp.clicked() && !on {
+            *value = *opt;
+            changed = true;
+        }
+        x += w;
+    }
+    changed
+}
+
+/// Quiet text-only button for secondary actions (Cancel, Save).
+pub fn secondary_button(ui: &mut Ui, text: &str, size: Vec2) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let t = hover_t(ui, resp.id, resp.hovered());
+    let v = ui.visuals();
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(8),
+        lerp_color(v.faint_bg_color, lerp_color(v.faint_bg_color, v.text_color(), 0.1), t),
+        Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
+        egui::StrokeKind::Inside,
+    );
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, text, FontId::proportional(13.5), v.text_color());
+    resp.on_hover_cursor(CursorIcon::PointingHand)
 }
