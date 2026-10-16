@@ -78,6 +78,14 @@ pub fn reveal_file(path: &std::path::Path) {
     }
 }
 
+/// Where Peek writes its log: %LOCALAPPDATA%\Peek\logs (or ~/.local/state/peek/logs).
+pub fn log_dir() -> Option<std::path::PathBuf> {
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        return Some(std::path::PathBuf::from(local).join("Peek").join("logs"));
+    }
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/state/peek/logs"))
+}
+
 pub fn safe_file_name(s: &str) -> String {
     s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '_' }).collect()
 }

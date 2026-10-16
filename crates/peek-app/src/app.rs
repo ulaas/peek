@@ -1483,6 +1483,11 @@ impl PeekApp {
                     if ui.button(format!("{}  About Peek", icons::INFO)).clicked() {
                         cmd = Some(Command::About);
                     }
+                    if let Some(dir) = util::log_dir() {
+                        if ui.button(format!("{}  Log folder", icons::FOLDER_OPEN)).on_hover_text(dir.display().to_string()).clicked() {
+                            open_in_file_manager(&dir);
+                        }
+                    }
                     ui.label(RichText::new(format!("{} · keyboard layout {:08X}", logo::short_commit(), self.keyboard_layout)).small().weak());
                 });
             });

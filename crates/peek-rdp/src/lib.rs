@@ -163,7 +163,7 @@ async fn connect(
     if req.options.audio {
         // Opus below LAN speeds (the Experience compression switch tracks that).
         let sound = audio::SessionSound::new(ctx.audio.clone(), req.options.experience.compression);
-        connector = connector.with_static_channel(ironrdp::rdpsnd::client::Rdpsnd::new(Box::new(sound)));
+        connector = connector.with_static_channel(audio::SoundChannel::new(sound));
     }
 
     ctx.events.status("Negotiating security");
