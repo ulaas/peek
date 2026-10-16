@@ -639,6 +639,7 @@ impl PeekApp {
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let mut close = None;
+        let mut toggle_audio = None;
         let mut cmd = None;
         let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
         let height = 44.0;
@@ -666,11 +667,14 @@ impl PeekApp {
                         self.active = None;
                     }
                     for (i, tab) in self.tabs.iter().enumerate() {
-                        let (dot, key) = match tab {
-                            Tab::Session(s) => (s.status_color(), s.id),
-                            Tab::Player(_) => (theme::accent(ui), u64::MAX - i as u64),
+                        let (dot, key, audio) = match tab {
+                            Tab::Session(s) => (s.status_color(), s.id, s.audio_indicator()),
+                            Tab::Player(_) => (theme::accent(ui), u64::MAX - i as u64, None),
                         };
-                        let out = widgets::tab_chip(ui, egui::Id::unique(("tab", key)), tab.title(), dot, self.active == Some(i));
+                        let out = widgets::tab_chip(ui, egui::Id::unique(("tab", key)), tab.title(), dot, self.active == Some(i), audio);
+                        if out.toggle_audio {
+                            toggle_audio = Some(i);
+                        }
                         if out.clicked {
                             self.active = Some(i);
                         }
@@ -725,6 +729,13 @@ impl PeekApp {
                     });
                 });
             });
+        if let Some(Tab::Session(s)) = toggle_audio.and_then(|i| self.tabs.get_mut(i)) {
+            s.toggle_mute();
+        }
+        // The speaker indicator follows the sound; look again shortly.
+        if self.tabs.iter().any(|t| matches!(t, Tab::Session(s) if s.audio_indicator() == Some(false))) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(400));
+        }
         if let Some(i) = close {
             self.close_tab(i);
         }

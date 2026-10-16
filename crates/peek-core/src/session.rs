@@ -10,7 +10,7 @@ use crate::experience::Experience;
 use crate::frame::SharedFrame;
 use crate::input::InputEvent;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use tokio::sync::mpsc;
 
 #[derive(Clone, Default)]
@@ -171,9 +171,82 @@ impl EventSink {
 }
 
 /// Backend side of a session.
+/// A block of decoded session audio: interleaved 16-bit PCM.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AudioChunk {
+    pub rate: u32,
+    pub channels: u16,
+    pub samples: Vec<i16>,
+}
+
+/// Audio settings and state shared by the UI and the backend.
+pub struct AudioControl {
+    /// Local playback volume in percent.
+    volume: AtomicU32,
+    muted: std::sync::atomic::AtomicBool,
+    /// When sound last came out (ms since the Unix epoch), for the speaker indicator.
+    last_heard_ms: AtomicU64,
+    /// Receives a copy of every chunk while set (recording).
+    tap: std::sync::Mutex<Option<std::sync::mpsc::Sender<AudioChunk>>>,
+}
+
+impl Default for AudioControl {
+    fn default() -> Self {
+        Self { volume: AtomicU32::new(100), muted: Default::default(), last_heard_ms: AtomicU64::new(0), tap: Default::default() }
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+impl AudioControl {
+    pub fn volume(&self) -> u32 {
+        self.volume.load(Ordering::Relaxed)
+    }
+    pub fn set_volume(&self, percent: u32) {
+        self.volume.store(percent.min(100), Ordering::Relaxed);
+    }
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
+    }
+    pub fn set_muted(&self, m: bool) {
+        self.muted.store(m, Ordering::Relaxed);
+    }
+    /// Gain to apply locally: volume, or zero when muted.
+    pub fn gain(&self) -> f32 {
+        if self.muted() { 0.0 } else { self.volume() as f32 / 100.0 }
+    }
+    /// Backend: sound is coming out now.
+    pub fn heard(&self) {
+        self.last_heard_ms.store(now_ms(), Ordering::Relaxed);
+    }
+    /// Sound came out within the last half second.
+    pub fn recently_heard(&self) -> bool {
+        now_ms().saturating_sub(self.last_heard_ms.load(Ordering::Relaxed)) < 500
+    }
+    /// Start or stop copying audio to `tx`.
+    pub fn set_tap(&self, tx: Option<std::sync::mpsc::Sender<AudioChunk>>) {
+        if let Ok(mut t) = self.tap.lock() {
+            *t = tx;
+        }
+    }
+    /// Backend: hand a chunk to the tap, if any. Drops the tap when its receiver is gone.
+    pub fn feed_tap(&self, chunk: &AudioChunk) {
+        if let Ok(mut t) = self.tap.lock() {
+            if let Some(tx) = t.as_ref() {
+                if tx.send(chunk.clone()).is_err() {
+                    *t = None;
+                }
+            }
+        }
+    }
+}
+
 pub struct SessionContext {
     pub frame: Arc<SharedFrame>,
     pub stats: Arc<SessionStats>,
+    pub audio: Arc<AudioControl>,
     pub events: EventSink,
     pub commands: mpsc::UnboundedReceiver<SessionCommand>,
 }
@@ -182,6 +255,7 @@ pub struct SessionContext {
 pub struct SessionHandle {
     pub frame: Arc<SharedFrame>,
     pub stats: Arc<SessionStats>,
+    pub audio: Arc<AudioControl>,
     commands: mpsc::UnboundedSender<SessionCommand>,
     events: std::sync::mpsc::Receiver<SessionEvent>,
 }
@@ -206,8 +280,9 @@ pub fn new_session(width: u32, height: u32) -> (SessionHandle, SessionContext) {
     let stats = Arc::new(SessionStats::default());
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (ev_tx, ev_rx) = std::sync::mpsc::channel();
+    let audio = Arc::new(AudioControl::default());
     (
-        SessionHandle { frame: frame.clone(), stats: stats.clone(), commands: cmd_tx, events: ev_rx },
-        SessionContext { frame: frame.clone(), stats, events: EventSink { tx: ev_tx, frame }, commands: cmd_rx },
+        SessionHandle { frame: frame.clone(), stats: stats.clone(), audio: audio.clone(), commands: cmd_tx, events: ev_rx },
+        SessionContext { frame: frame.clone(), stats, audio, events: EventSink { tx: ev_tx, frame }, commands: cmd_rx },
     )
 }

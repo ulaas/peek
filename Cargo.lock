@@ -2521,20 +2521,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ironrdp-rdpsnd-native"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d2d36d9bb45863f9bc5225bf3bccda125fafb1b225c1f99dbeaeebb258e7dc"
-dependencies = [
- "bytemuck",
- "cpal",
- "ironrdp-error",
- "ironrdp-rdpsnd",
- "opus2",
- "tracing",
-]
-
-[[package]]
 name = "ironrdp-session"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3781,6 +3767,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "peek-audio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "parking_lot",
+ "tracing",
+]
+
+[[package]]
 name = "peek-core"
 version = "0.1.0"
 dependencies = [
@@ -3798,9 +3794,10 @@ dependencies = [
  "anyhow",
  "ironrdp",
  "ironrdp-error",
- "ironrdp-rdpsnd-native",
  "ironrdp-tls",
  "ironrdp-tokio",
+ "opus2",
+ "peek-audio",
  "peek-core",
  "sha2 0.10.9",
  "tokio",

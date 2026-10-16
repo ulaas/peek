@@ -4,6 +4,8 @@
 //! every graphics update, this driver copies only the updated region into
 //! the shared framebuffer, so small updates stay cheap at any resolution.
 
+#[cfg(feature = "audio")]
+mod audio;
 mod clipboard;
 
 use anyhow::Context;
@@ -159,9 +161,9 @@ async fn connect(
 
     #[cfg(feature = "audio")]
     if req.options.audio {
-        connector = connector.with_static_channel(ironrdp::rdpsnd::client::Rdpsnd::new(Box::new(
-            ironrdp_rdpsnd_native::cpal::RdpsndBackend::new(),
-        )));
+        // Opus below LAN speeds (the Experience compression switch tracks that).
+        let sound = audio::SessionSound::new(ctx.audio.clone(), req.options.experience.compression);
+        connector = connector.with_static_channel(ironrdp::rdpsnd::client::Rdpsnd::new(Box::new(sound)));
     }
 
     ctx.events.status("Negotiating security");

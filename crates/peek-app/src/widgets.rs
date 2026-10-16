@@ -391,15 +391,17 @@ pub fn glow(ui: &Ui, center: Pos2, radius: f32) {
 pub struct TabOutput {
     pub clicked: bool,
     pub close: bool,
+    pub toggle_audio: bool,
 }
 
 /// Tab in the top bar: status dot, title, close button on hover, accent
 /// underline when selected. Middle click closes.
-pub fn tab_chip(ui: &mut Ui, id: Id, title: &str, dot: Color32, selected: bool) -> TabOutput {
+pub fn tab_chip(ui: &mut Ui, id: Id, title: &str, dot: Color32, selected: bool, audio: Option<bool>) -> TabOutput {
     let v = ui.visuals().clone();
     let color = if selected { v.strong_text_color() } else { v.text_color() };
     let g = elided(ui, title, FontId::proportional(13.0), color, 170.0);
-    let size = Vec2::new(12.0 + 8.0 + 8.0 + g.size().x + 6.0 + 20.0 + 4.0, 30.0);
+    let speaker_w = if audio.is_some() { 20.0 } else { 0.0 };
+    let size = Vec2::new(12.0 + 8.0 + 8.0 + g.size().x + 6.0 + speaker_w + 20.0 + 4.0, 30.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let hovered = ui.rect_contains_pointer(rect);
     let t = hover_t(ui, id, hovered);
@@ -424,8 +426,20 @@ pub fn tab_chip(ui: &mut Ui, id: Id, title: &str, dot: Color32, selected: bool) 
         p.text(xr.center(), Align2::CENTER_CENTER, icons::X, FontId::proportional(11.0), c);
         close = x.clicked();
     }
+    // Speaker: shows while the session plays sound (or is muted); click toggles mute.
+    let mut toggle_audio = false;
+    if let Some(muted) = audio {
+        let sr = Rect::from_center_size(Pos2::new(xr.left() - 11.0, rect.center().y), Vec2::splat(18.0));
+        let s = ui.interact(sr, id.with("audio"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        let s = s.on_hover_text(if muted { "Unmute this session" } else { "Mute this session" });
+        let st = hover_t(ui, s.id, s.hovered());
+        p.rect_filled(sr, CornerRadius::same(5), hover_fill(ui).gamma_multiply(1.6 * st));
+        let (icon, c) = if muted { (icons::SPEAKER_X, v.weak_text_color()) } else { (icons::SPEAKER_HIGH, theme::accent(ui)) };
+        p.text(sr.center(), Align2::CENTER_CENTER, icon, FontId::proportional(12.5), c);
+        toggle_audio = s.clicked();
+    }
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
-    TabOutput { clicked: resp.clicked() && !close, close: close || resp.middle_clicked() }
+    TabOutput { clicked: resp.clicked() && !close && !toggle_audio, close: close || resp.middle_clicked(), toggle_audio }
 }
 
 /// Icon-and-label navigation chip (Home).

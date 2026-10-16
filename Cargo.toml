@@ -16,6 +16,7 @@ peek-vnc = { path = "crates/peek-vnc" }
 peek-rdp = { path = "crates/peek-rdp" }
 peek-record = { path = "crates/peek-record" }
 peek-store = { path = "crates/peek-store" }
+peek-audio = { path = "crates/peek-audio" }
 
 anyhow = "1"
 thiserror = "2"

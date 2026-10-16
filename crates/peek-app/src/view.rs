@@ -72,6 +72,9 @@ pub struct SessionView {
     pub fingerprint: Option<String>,
     pub vault_key: String,
     handle: Option<SessionHandle>,
+    /// Local playback volume (percent) and mute; kept across reconnects.
+    volume: u32,
+    muted: bool,
     texture: Option<TextureHandle>,
     remote: (u32, u32),
     cursor_mode: CursorMode,
@@ -132,6 +135,8 @@ impl SessionView {
             cursor: None,
             focused: false,
             focus_pending: false,
+            volume: 100,
+            muted: false,
             sent_mods: egui::Modifiers::NONE,
             grab_ctrl: false,
             grab_alt: false,
@@ -182,6 +187,8 @@ impl SessionView {
             Resolution::Fixed { width, height } => (width, height),
         };
         let (handle, sctx) = new_session(w, h);
+        handle.audio.set_volume(self.volume);
+        handle.audio.set_muted(self.muted);
         let repaint = ctx.clone();
         handle.frame.set_waker(move || repaint.request_repaint());
         let req = ConnectRequest {
@@ -606,6 +613,30 @@ impl SessionView {
         }
     }
 
+    /// Speaker state for the tab: `Some(muted)` while the session plays
+    /// sound or is muted, `None` when silent.
+    pub fn audio_indicator(&self) -> Option<bool> {
+        let a = &self.handle.as_ref()?.audio;
+        (self.muted || a.recently_heard()).then_some(self.muted)
+    }
+
+    pub fn toggle_mute(&mut self) {
+        self.muted = !self.muted;
+        if let Some(h) = &self.handle {
+            h.audio.set_muted(self.muted);
+        }
+    }
+
+    fn set_volume(&mut self, v: u32) {
+        self.volume = v.min(100);
+        if self.volume > 0 && self.muted {
+            self.toggle_mute();
+        }
+        if let Some(h) = &self.handle {
+            h.audio.set_volume(self.volume);
+        }
+    }
+
     pub fn is_connected(&self) -> bool {
         matches!(self.phase, Phase::Connected)
     }
@@ -846,6 +877,24 @@ impl SessionView {
                             let rec_btn = egui::Button::new(egui::RichText::new(icons::RECORD).color(if rec { theme::DANGER } else { ui.visuals().text_color() }));
                             if ui.add(rec_btn).on_hover_text(if rec { "Stop recording" } else { "Record this session" }).clicked() {
                                 actions.push(if rec { ViewAction::StopRecording } else { ViewAction::StartRecording });
+                            }
+                            if self.options.audio && self.endpoint.protocol == Protocol::Rdp {
+                                let icon = if self.muted || self.volume == 0 {
+                                    icons::SPEAKER_X
+                                } else if self.volume < 50 {
+                                    icons::SPEAKER_LOW
+                                } else {
+                                    icons::SPEAKER_HIGH
+                                };
+                                if ui.button(icon).on_hover_text(if self.muted { "Unmute" } else { "Mute" }).clicked() {
+                                    self.toggle_mute();
+                                }
+                                let mut v = if self.muted { 0 } else { self.volume };
+                                ui.spacing_mut().slider_width = 80.0;
+                                let s = ui.add(egui::Slider::new(&mut v, 0..=100).show_value(false)).on_hover_text(format!("Volume {v}%"));
+                                if s.changed() {
+                                    self.set_volume(v);
+                                }
                             }
                             if ui.button(icons::CAMERA).on_hover_text("Copy screenshot to clipboard").clicked() {
                                 self.screenshot(&ctx);

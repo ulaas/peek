@@ -1,0 +1,12 @@
+[package]
+name = "peek-audio"
+description = "Low-latency audio output for Peek sessions and recordings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+cpal = "0.17"
