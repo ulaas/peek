@@ -46,14 +46,25 @@ impl ironrdp_tokio::NetworkClient for NoNetwork {
     }
 }
 
+/// Splits the user name field into (domain, account) for NTLM.
+///
+/// Accepts `DOMAIN\user`, `user@domain` (UPN) and `MicrosoftAccount\you@outlook.com`.
+/// An account that contains `@` is always sent as a UPN with no domain: sspi cannot pair a
+/// NetBIOS domain with such an account, and Windows resolves the UPN to the Microsoft account
+/// the same way it does at the logon screen.
+fn split_user(raw: &str, domain: Option<&str>) -> (Option<String>, String) {
+    let (domain, account) = match raw.split_once('\\') {
+        Some((d, u)) => (Some(d), u),
+        None => (domain, raw),
+    };
+    let domain = domain.map(str::trim).filter(|d| !d.is_empty() && !account.contains('@'));
+    (domain.map(str::to_owned), account.to_owned())
+}
+
 fn connector_config(req: &ConnectRequest, width: u16, height: u16) -> connector::Config {
     let creds = &req.credentials;
-    // Accept "DOMAIN\user" and "user@domain" in the user name field.
     let raw_user = creds.username.clone().or_else(|| req.endpoint.username.clone()).unwrap_or_default();
-    let (domain, username) = match raw_user.split_once('\\') {
-        Some((d, u)) => (Some(d.to_string()), u.to_string()),
-        None => (creds.domain.clone(), raw_user),
-    };
+    let (domain, username) = split_user(&raw_user, creds.domain.as_deref());
     let client_name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "peek".into());
 
     connector::Config {
@@ -444,6 +455,29 @@ mod tests {
         match cfg.credentials {
             Credentials::UsernamePassword { username, .. } => assert_eq!(username, "alice"),
             _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn user_name_formats() {
+        let s = |raw: &str, dom: Option<&str>| split_user(raw, dom);
+        assert_eq!(s("CORP\\alice", None), (Some("CORP".into()), "alice".into()));
+        assert_eq!(s("alice", Some("CORP")), (Some("CORP".into()), "alice".into()));
+        assert_eq!(s("alice@corp.local", None), (None, "alice@corp.local".into()));
+        assert_eq!(s("MicrosoftAccount\\you@hotmail.com", None), (None, "you@hotmail.com".into()));
+        assert_eq!(s("microsoftaccount\\you@outlook.com", None), (None, "you@outlook.com".into()));
+        assert_eq!(s("you@hotmail.com", Some("MicrosoftAccount")), (None, "you@hotmail.com".into()));
+        assert_eq!(s("\\alice", None), (None, "alice".into()));
+        assert_eq!(s(".\\alice", None), (Some(".".into()), "alice".into()));
+    }
+
+    /// Every accepted format must also be accepted by sspi, or CredSSP fails before connecting.
+    #[test]
+    fn user_names_valid_for_sspi() {
+        for raw in ["CORP\\alice", "alice", "alice@corp.local", "MicrosoftAccount\\you@hotmail.com", "\\alice"] {
+            let (domain, account) = split_user(raw, None);
+            let u = ironrdp::connector::sspi::Username::new(&account, domain.as_deref());
+            assert!(u.is_ok(), "{raw}: {u:?}");
         }
     }
 }

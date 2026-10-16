@@ -754,7 +754,7 @@ impl SessionView {
                 let needs_user = self.endpoint.protocol != Protocol::Vnc;
                 if needs_user {
                     ui.label("User name");
-                    ui.add(egui::TextEdit::singleline(&mut self.form_user).hint_text("DOMAIN\\user or user@domain").desired_width(f32::INFINITY));
+                    ui.add(egui::TextEdit::singleline(&mut self.form_user).hint_text("DOMAIN\\user, user@domain or MicrosoftAccount\\you@outlook.com").desired_width(f32::INFINITY));
                 }
                 ui.label("Password");
                 let pw = ui.add(egui::TextEdit::singleline(&mut self.form_password).password(true).desired_width(f32::INFINITY));

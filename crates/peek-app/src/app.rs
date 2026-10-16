@@ -270,6 +270,8 @@ impl PeekApp {
         let (rt, layout, desired) = (self.rt.clone(), self.keyboard_layout, self.desired_px);
         let mut toast = None;
         let mut profile_update = None;
+        let pid = self.session_mut(id).and_then(|v| v.profile_id);
+        let domain = pid.and_then(|pid| self.store.library.get(pid)).and_then(|p| p.domain.clone());
         let Some(view) = self.session_mut(id) else { return };
         if !user.trim().is_empty() {
             view.endpoint.username = Some(user.trim().to_string());
@@ -291,7 +293,7 @@ impl PeekApp {
             _ => true,
         };
         if ready {
-            let creds = Credentials { username: view.endpoint.username.clone(), password, domain: None };
+            let creds = Credentials { username: view.endpoint.username.clone(), password, domain };
             view.connect(&rt, ctx, creds, desired, layout);
         } else {
             view.phase = Phase::NeedCredentials { message: None };
@@ -846,7 +848,7 @@ impl PeekApp {
                     ui.add(egui::TextEdit::singleline(&mut ed.profile.name).hint_text(hint).desired_width(260.0));
                     ui.end_row();
                     ui.label("User name");
-                    ui.add(egui::TextEdit::singleline(&mut ed.user).hint_text("DOMAIN\\user").desired_width(260.0));
+                    ui.add(egui::TextEdit::singleline(&mut ed.user).hint_text("DOMAIN\\user or user@domain").desired_width(260.0));
                     ui.end_row();
                     ui.label("Password");
                     let hint = if ed.has_saved_password { "saved in keychain (unchanged)" } else { "optional" };

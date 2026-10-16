@@ -9,6 +9,7 @@ Working today:
 - **RDP** on IronRDP: TLS + NLA (CredSSP), RemoteFX, dynamic resize, audio, text clipboard, certificate trust on first use
 - **VNC**: in-house RFB 3.3–3.8 client with None/VNC auth and Raw, CopyRect, RRE, Hextile, ZRLE, Tight + JPEG decoders
 - Tabs, connection library (groups, favorites, search, recent), OS keychain for passwords, `.rdp` import
+- User names as `DOMAIN\user`, `user@domain` or `MicrosoftAccount\you@outlook.com` (Microsoft accounts are sent as a UPN)
 - Command palette (Ctrl+K), floating session toolbar, full screen, live thumbnails of open sessions
 - Keyboard grab on Windows: Windows key, Alt+Tab and Print Screen go to the remote computer
 - Auto-reconnect with backoff, Wake-on-LAN, screenshot to clipboard

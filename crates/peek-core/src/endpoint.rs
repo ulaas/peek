@@ -203,6 +203,14 @@ mod tests {
     }
 
     #[test]
+    fn microsoft_account_user() {
+        let e = p("MicrosoftAccount\\you@hotmail.com@pc.local");
+        assert_eq!(e.username.as_deref(), Some("MicrosoftAccount\\you@hotmail.com"));
+        assert_eq!((e.host.as_str(), e.port), ("pc.local", 3389));
+        assert_eq!(p(&e.to_string()), e);
+    }
+
+    #[test]
     fn ipv6() {
         assert_eq!(p("[fe80::1]:5900").host, "fe80::1");
         assert_eq!(p("fe80::1").port, 3389);
