@@ -29,6 +29,7 @@ peek vnc://pi.local:1         # VNC display 1 = port 5901
 peek alice@10.0.0.5:3390      # RDP with user name and port
 peek Work.rdp                 # import an mstsc connection file
 peek session.peekrec          # play a recording
+peek --version                # version and the commit it was built from
 ```
 
 | Shortcut | Action |
