@@ -10,6 +10,8 @@ peek-core.workspace = true
 anyhow.workspace = true
 bytemuck.workspace = true
 zstd.workspace = true
+peek-audio.workspace = true
+opus2 = "0.4"
 openh264 = { version = "0.9.9", optional = true }
 mp4 = { version = "0.14.0", optional = true }
 

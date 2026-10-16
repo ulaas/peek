@@ -190,7 +190,7 @@ fn writer<T: cpal::SizedSample + cpal::FromSample<f32>>(shared: Arc<Shared>) -> 
 /// the device's, with linear interpolation. Keeps its phase across calls so
 /// consecutive packets join without clicks.
 #[derive(Default)]
-struct Resampler {
+pub struct Resampler {
     /// Pending source frames, already in the output channel layout.
     frames: Vec<f32>,
     /// Read position in `frames`, in frames.
@@ -199,12 +199,20 @@ struct Resampler {
 }
 
 impl Resampler {
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.frames.clear();
         self.pos = 0.0;
     }
 
-    fn process(&mut self, input: &[i16], rate: u32, ch_in: u16, out_rate: u32, ch_out: u16, out: &mut VecDeque<f32>) {
+    /// Convert to `out_rate` / `ch_out` as 16-bit samples.
+    pub fn process_i16(&mut self, input: &[i16], rate: u32, ch_in: u16, out_rate: u32, ch_out: u16) -> Vec<i16> {
+        let mut out = VecDeque::new();
+        self.process(input, rate, ch_in, out_rate, ch_out, &mut out);
+        out.into_iter().map(|v| (v * 32768.0).round().clamp(-32768.0, 32767.0) as i16).collect()
+    }
+
+    /// Convert interleaved `input` and append it to `out` (f32, -1.0 ..= 1.0).
+    pub fn process(&mut self, input: &[i16], rate: u32, ch_in: u16, out_rate: u32, ch_out: u16, out: &mut VecDeque<f32>) {
         if self.from != (rate, ch_in) {
             self.reset();
             self.from = (rate, ch_in);

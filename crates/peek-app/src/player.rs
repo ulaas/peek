@@ -29,11 +29,23 @@ enum ExportState {
     Failed(String),
 }
 
+/// Recording sound: decoder plus output, opened on the first packet.
+struct PlayerAudio {
+    out: Option<peek_audio::AudioOut>,
+    open_failed: bool,
+    decoder: Option<opus2::Decoder>,
+    volume: u32,
+    muted: bool,
+    /// The recording contains sound (shows the volume controls).
+    present: bool,
+}
+
 pub struct PlayerView {
     pub title: String,
     path: PathBuf,
     player: Player,
     export: Option<ExportState>,
+    audio: PlayerAudio,
     texture: Option<TextureHandle>,
     needs_full: bool,
     playing: bool,
@@ -55,6 +67,7 @@ impl PlayerView {
             path,
             player,
             export: None,
+            audio: PlayerAudio { out: None, open_failed: false, decoder: None, volume: 100, muted: false, present: false },
             texture: None,
             needs_full: true,
             playing: true,
@@ -111,6 +124,7 @@ impl PlayerView {
                 self.playing = false;
             }
         }
+        self.play_audio();
 
         // Picture, fitted.
         if let Some(tex) = &self.texture {
@@ -138,6 +152,9 @@ impl PlayerView {
                         self.seek(0.0);
                     }
                     self.playing = !self.playing;
+                    if !self.playing {
+                        self.silence();
+                    }
                 }
                 let dur = self.player.duration_ms.max(1) as f64;
                 ui.label(
@@ -153,6 +170,32 @@ impl PlayerView {
                         ui.selectable_value(&mut self.speed, s, format!("{s}×"));
                     }
                 });
+                if self.audio.present {
+                    let a = &mut self.audio;
+                    let icon = if a.muted || a.volume == 0 {
+                        icons::SPEAKER_X
+                    } else if a.volume < 50 {
+                        icons::SPEAKER_LOW
+                    } else {
+                        icons::SPEAKER_HIGH
+                    };
+                    let tip = if (self.speed - 1.0).abs() > f32::EPSILON { "Sound plays at 1x speed only" } else if a.muted { "Unmute" } else { "Mute" };
+                    let mut cut = false;
+                    if ui.button(icon).on_hover_text(tip).clicked() {
+                        a.muted = !a.muted;
+                        cut = a.muted;
+                    }
+                    let mut v = if a.muted { 0 } else { a.volume };
+                    ui.spacing_mut().slider_width = 70.0;
+                    if ui.add(egui::Slider::new(&mut v, 0..=100).show_value(false)).on_hover_text(format!("Volume {v}%")).changed() {
+                        a.volume = v;
+                        a.muted = v == 0;
+                        cut = a.muted;
+                    }
+                    if cut {
+                        self.silence();
+                    }
+                }
                 let busy = matches!(self.export, Some(ExportState::Running(_)));
                 let export = ui
                     .add_enabled(!busy, egui::Button::new(format!("{}  Export MP4", icons::EXPORT)))
@@ -295,7 +338,51 @@ impl PlayerView {
         }
     }
 
+    /// Play the audio packets playback just passed; sound only at 1x.
+    fn play_audio(&mut self) {
+        let packets = std::mem::take(&mut self.player.audio);
+        if packets.is_empty() {
+            return;
+        }
+        let a = &mut self.audio;
+        a.present = true;
+        let audible = self.playing && (self.speed - 1.0).abs() < f32::EPSILON && !a.muted && a.volume > 0;
+        if !audible {
+            return;
+        }
+        if a.out.is_none() && !a.open_failed {
+            match peek_audio::AudioOut::open() {
+                Ok(o) => a.out = Some(o),
+                Err(e) => {
+                    tracing::warn!("no audio output: {e:#}");
+                    a.open_failed = true;
+                }
+            }
+        }
+        let Some(out) = &a.out else { return };
+        if a.decoder.is_none() {
+            a.decoder = opus2::Decoder::new(peek_record::AUDIO_RATE, opus2::Channels::Stereo).ok();
+        }
+        let Some(dec) = a.decoder.as_mut() else { return };
+        out.set_volume(a.volume as f32 / 100.0);
+        let mut pcm = vec![0i16; 5760 * 2];
+        for (_, packet) in packets {
+            if let Ok(n) = dec.decode(&packet, &mut pcm, false) {
+                out.push(&pcm[..n * 2], peek_record::AUDIO_RATE, peek_record::AUDIO_CHANNELS);
+            }
+        }
+    }
+
+    /// Cut queued sound (pause, seek, mute).
+    fn silence(&mut self) {
+        if let Some(out) = &self.audio.out {
+            out.clear();
+        }
+        self.audio.decoder = None;
+    }
+
     fn seek(&mut self, ms: f64) {
+        self.silence();
         self.clock_ms = ms;
         if let Err(e) = self.player.seek(ms as u32) {
             self.error = Some(format!("{e:#}"));

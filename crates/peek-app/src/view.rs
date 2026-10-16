@@ -957,12 +957,20 @@ impl SessionView {
         let path = dir.join(name);
         let ep = self.endpoint.to_string();
         let initial = h.frame.read(|fb| fb.clone());
-        let rec = Recorder::start(&path, &[("endpoint", ep.as_str()), ("title", self.title.as_str())], &initial)?;
+        let mut rec = Recorder::start(&path, &[("endpoint", ep.as_str()), ("title", self.title.as_str())], &initial)?;
+        // Session sound goes into the recording too.
+        match rec.audio_tap() {
+            Ok(tap) => h.audio.set_tap(Some(tap)),
+            Err(e) => tracing::warn!("recording without audio: {e:#}"),
+        }
         self.recorder = Some(rec);
         Ok(path)
     }
 
     pub fn stop_recording(&mut self) -> Option<peek_record::RecordingInfo> {
+        if let Some(h) = &self.handle {
+            h.audio.set_tap(None);
+        }
         self.recorder.take().and_then(|r| r.stop().ok())
     }
 

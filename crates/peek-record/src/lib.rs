@@ -14,7 +14,11 @@
 //!   kind 1 region: u16 x, y, w, h | w*h*4 RGBA bytes
 //!   kind 2 resize: u16 w, h
 //!   kind 3 pointer: u16 x, y
+//!   kind 4 audio:   u16 len | one Opus packet, 48 kHz stereo, 20 ms
 //! ```
+//!
+//! Audio is stored as Opus (about 96 kbit/s) rather than PCM, which would
+//! outweigh the picture of a typical session many times over.
 //! Each segment is an independent zstd frame, so a recording that was cut
 //! off (crash, power loss) is readable up to its last complete segment, and
 //! the player can seek by jumping to the nearest keyframe segment.
@@ -23,7 +27,9 @@
 pub mod export;
 
 use anyhow::{Context, bail, ensure};
-use peek_core::{Framebuffer, Rect};
+use peek_core::{AudioChunk, Framebuffer, Rect};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -35,6 +41,12 @@ const MAGIC: &[u8; 8] = b"PEEKREC\x01";
 const KIND_REGION: u8 = 1;
 const KIND_RESIZE: u8 = 2;
 const KIND_POINTER: u8 = 3;
+const KIND_AUDIO: u8 = 4;
+
+/// Recorded audio format: Opus at 48 kHz stereo in 20 ms packets.
+pub const AUDIO_RATE: u32 = 48_000;
+pub const AUDIO_CHANNELS: u16 = 2;
+const AUDIO_FRAME: usize = 960;
 const FLAG_KEYFRAME: u8 = 1;
 
 /// Flush a segment after this much time or this many raw bytes.
@@ -47,6 +59,7 @@ enum Msg {
     Region { at: Instant, rect: Rect, rgba: Vec<u8> },
     Resize { at: Instant, w: u32, h: u32 },
     Pointer { at: Instant, x: u32, y: u32 },
+    Audio { ts: u32, packet: Vec<u8> },
 }
 
 /// Handle for an in-progress recording. Cheap to feed: data is copied into a
@@ -56,6 +69,9 @@ pub struct Recorder {
     thread: Option<JoinHandle<anyhow::Result<RecordingInfo>>>,
     path: PathBuf,
     started: Instant,
+    /// Tells the audio encoder thread (if any) to finish.
+    audio_stop: Arc<AtomicBool>,
+    audio_thread: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,7 +104,7 @@ impl Recorder {
         let thread = std::thread::Builder::new()
             .name("peek-recorder".into())
             .spawn(move || writer_thread(file, rx, shadow, started, thread_path))?;
-        Ok(Self { tx: Some(tx), thread: Some(thread), path, started })
+        Ok(Self { tx: Some(tx), thread: Some(thread), path, started, audio_stop: Arc::new(AtomicBool::new(false)), audio_thread: None })
     }
 
     pub fn path(&self) -> &Path {
@@ -113,6 +129,21 @@ impl Recorder {
         self.send(Msg::Pointer { at: Instant::now(), x, y });
     }
 
+    /// A sender for the session's decoded audio; the recording encodes it
+    /// to Opus on its own thread. Call once per recording.
+    pub fn audio_tap(&mut self) -> anyhow::Result<mpsc::Sender<AudioChunk>> {
+        let Some(tx) = self.tx.clone() else { bail!("recording stopped") };
+        let (atx, arx) = mpsc::channel::<AudioChunk>();
+        let mut enc = opus2::Encoder::new(AUDIO_RATE, opus2::Channels::Stereo, opus2::Application::Audio)?;
+        enc.set_bitrate(opus2::Bitrate::Bits(96_000))?;
+        let (started, stop) = (self.started, self.audio_stop.clone());
+        let t = std::thread::Builder::new()
+            .name("peek-rec-audio".into())
+            .spawn(move || audio_thread(arx, tx, enc, started, stop))?;
+        self.audio_thread = Some(t);
+        Ok(atx)
+    }
+
     fn send(&self, m: Msg) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(m);
@@ -125,6 +156,11 @@ impl Recorder {
     }
 
     fn finish(&mut self) -> anyhow::Result<RecordingInfo> {
+        // The audio thread holds a sender too: stop it first, keeping what it encoded.
+        self.audio_stop.store(true, Ordering::Relaxed);
+        if let Some(t) = self.audio_thread.take() {
+            let _ = t.join();
+        }
         drop(self.tx.take());
         match self.thread.take() {
             Some(t) => t.join().map_err(|_| anyhow::anyhow!("recorder thread panicked"))?,
@@ -139,6 +175,56 @@ impl Drop for Recorder {
             let _ = self.finish();
         }
     }
+}
+
+/// Resample incoming audio to 48 kHz stereo, cut it into 20 ms Opus packets
+/// and timestamp them. Continuous audio gets back-to-back timestamps;
+/// after a pause (the server sends nothing during silence) the clock
+/// re-syncs to when the sound arrived.
+fn audio_thread(rx: mpsc::Receiver<AudioChunk>, tx: mpsc::Sender<Msg>, mut enc: opus2::Encoder, started: Instant, stop: Arc<AtomicBool>) {
+    let mut resampler = peek_audio::Resampler::default();
+    let mut pcm: Vec<i16> = Vec::new();
+    let mut pcm_start_ms: f64 = 0.0;
+    let ch = AUDIO_CHANNELS as usize;
+    let frame_ms = AUDIO_FRAME as f64 * 1000.0 / AUDIO_RATE as f64;
+    let mut packet = vec![0u8; 4000];
+    let mut emit = |pcm: &mut Vec<i16>, start: &mut f64, flush: bool| {
+        if flush && !pcm.is_empty() {
+            let pad = AUDIO_FRAME * ch - pcm.len() % (AUDIO_FRAME * ch);
+            if pad < AUDIO_FRAME * ch {
+                pcm.extend(std::iter::repeat_n(0, pad));
+            }
+        }
+        while pcm.len() >= AUDIO_FRAME * ch {
+            if let Ok(n) = enc.encode(&pcm[..AUDIO_FRAME * ch], &mut packet) {
+                let _ = tx.send(Msg::Audio { ts: *start as u32, packet: packet[..n].to_vec() });
+            }
+            pcm.drain(..AUDIO_FRAME * ch);
+            *start += frame_ms;
+        }
+    };
+    loop {
+        let chunk = match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(c) => c,
+            Err(mpsc::RecvTimeoutError::Timeout) if !stop.load(Ordering::Relaxed) => continue,
+            Err(_) => break,
+        };
+        let samples = resampler.process_i16(&chunk.samples, chunk.rate, chunk.channels, AUDIO_RATE, AUDIO_CHANNELS);
+        let dur_ms = (samples.len() / ch) as f64 * 1000.0 / AUDIO_RATE as f64;
+        let arrived_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let starts_at = (arrived_ms - dur_ms).max(0.0);
+        let buffered_end = pcm_start_ms + (pcm.len() / ch) as f64 * 1000.0 / AUDIO_RATE as f64;
+        if pcm.is_empty() || (starts_at - buffered_end).abs() > 200.0 {
+            emit(&mut pcm, &mut pcm_start_ms, true);
+            pcm_start_ms = starts_at;
+        }
+        pcm.extend_from_slice(&samples);
+        emit(&mut pcm, &mut pcm_start_ms, false);
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+    }
+    emit(&mut pcm, &mut pcm_start_ms, true);
 }
 
 struct SegmentBuf {
@@ -231,6 +317,12 @@ fn writer_thread(
                     seg.raw.extend_from_slice(&(x as u16).to_le_bytes());
                     seg.raw.extend_from_slice(&(y as u16).to_le_bytes());
                 }
+                Msg::Audio { ts: t, packet } => {
+                    last_ts = last_ts.max(t);
+                    seg.header(t, KIND_AUDIO);
+                    seg.raw.extend_from_slice(&(packet.len() as u16).to_le_bytes());
+                    seg.raw.extend_from_slice(&packet);
+                }
             }
         }
         if seg.opened.elapsed() >= SEGMENT_TIME || seg.raw.len() >= SEGMENT_BYTES {
@@ -252,6 +344,8 @@ pub enum Event {
     Region { rect: Rect, rgba: Vec<u8> },
     Resize { w: u32, h: u32 },
     Pointer { x: u32, y: u32 },
+    /// One Opus packet (48 kHz stereo, 20 ms).
+    Audio { packet: Vec<u8> },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -274,6 +368,9 @@ pub struct Player {
     pending: std::vec::IntoIter<(u32, Event)>,
     next_segment: usize,
     pub duration_ms: u32,
+    /// Audio packets passed by the last `advance_to`, with their timestamps.
+    /// Seeking clears them; the caller drains them to play.
+    pub audio: Vec<(u32, Vec<u8>)>,
 }
 
 impl Player {
@@ -319,6 +416,7 @@ impl Player {
             pending: Vec::new().into_iter(),
             next_segment: 0,
             duration_ms: 0,
+            audio: Vec::new(),
         };
         // Duration: last timestamp of the last segment.
         let last = p.segments.len() - 1;
@@ -347,6 +445,7 @@ impl Player {
         self.pending = Vec::new().into_iter();
         self.position_ms = 0;
         self.advance_to(ms)?;
+        self.audio.clear();
         Ok(())
     }
 
@@ -380,6 +479,7 @@ impl Player {
                     damage.push(Rect::new(0, 0, w, h));
                 }
                 Event::Pointer { x, y } => self.pointer = Some((x, y)),
+                Event::Audio { packet } => self.audio.push((next, packet)),
             }
         }
         self.position_ms = ms.min(self.duration_ms);
@@ -423,6 +523,10 @@ fn parse_records(raw: &[u8]) -> anyhow::Result<Vec<(u32, Event)>> {
                 let g = take(&mut p, 4)?;
                 Event::Pointer { x: u16_at(g, 0), y: u16_at(g, 2) }
             }
+            KIND_AUDIO => {
+                let n = u16_at(take(&mut p, 2)?, 0) as usize;
+                Event::Audio { packet: take(&mut p, n)?.to_vec() }
+            }
             k => bail!("unknown record kind {k}"),
         };
         out.push((ts, ev));
@@ -463,6 +567,38 @@ mod tests {
 
         p.seek(0).unwrap();
         assert_eq!((p.frame.width(), p.frame.height()), (8, 8));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn audio_is_recorded_and_replayed() {
+        let dir = std::env::temp_dir().join(format!("peekrec-audio-{}", std::process::id()));
+        let path = dir.join("t.peekrec");
+        let fb = Framebuffer::new(4, 4);
+        let mut rec = Recorder::start(&path, &[], &fb).unwrap();
+        let tap = rec.audio_tap().unwrap();
+        // 300 ms of a 44.1 kHz tone in 10 ms chunks, like an RDP server sends.
+        for i in 0..30 {
+            let samples: Vec<i16> = (0..441 * 2).map(|j| (((i * 441 + j / 2) as f32 * 0.06).sin() * 9000.0) as i16).collect();
+            tap.send(AudioChunk { rate: 44_100, channels: 2, samples }).unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(30));
+        rec.stop().unwrap(); // must not wait for `tap` to be dropped
+        drop(tap);
+
+        let mut p = Player::open(&path).unwrap();
+        p.advance_to(p.duration_ms).unwrap();
+        let n = p.audio.len();
+        assert!((14..=16).contains(&n), "{n} packets for 300 ms");
+        let ts: Vec<u32> = p.audio.iter().map(|(t, _)| *t).collect();
+        assert!(ts.windows(2).all(|w| w[1] - w[0] == 20 || w[1] - w[0] == 19 || w[1] - w[0] == 21), "{ts:?}");
+        let mut dec = opus2::Decoder::new(48_000, opus2::Channels::Stereo).unwrap();
+        let mut out = vec![0i16; 960 * 2];
+        assert_eq!(dec.decode(&p.audio[3].1, &mut out, false).unwrap(), 960);
+        assert!(out.iter().any(|s| s.unsigned_abs() > 1000), "decoded audio is not silent");
+        p.seek(0).unwrap();
+        assert!(p.audio.is_empty(), "seeking must not replay audio");
         std::fs::remove_dir_all(dir).ok();
     }
 

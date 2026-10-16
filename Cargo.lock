@@ -3752,7 +3752,9 @@ dependencies = [
  "bytemuck",
  "eframe",
  "egui",
+ "opus2",
  "parking_lot",
+ "peek-audio",
  "peek-core",
  "peek-rdp",
  "peek-record",
@@ -3813,6 +3815,8 @@ dependencies = [
  "bytemuck",
  "mp4",
  "openh264",
+ "opus2",
+ "peek-audio",
  "peek-core",
  "zstd",
 ]
