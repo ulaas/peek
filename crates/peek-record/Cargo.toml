@@ -14,7 +14,9 @@ peek-audio.workspace = true
 opus2 = "0.4"
 openh264 = { version = "0.9.9", optional = true }
 mp4 = { version = "0.14.0", optional = true }
+fdk-aac = { version = "0.8", optional = true }
 
 [features]
 # H.264 / MP4 export (compiles Cisco OpenH264 from source).
-mp4 = ["dep:openh264", "dep:mp4"]
+mp4 = ["dep:openh264", "dep:mp4", "dep:fdk-aac"]
+fdk-aac = ["dep:fdk-aac"]

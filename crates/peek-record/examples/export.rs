@@ -23,9 +23,10 @@ fn main() -> anyhow::Result<()> {
     })?;
     eprintln!();
     println!(
-        "{}x{}, {} frames, {:.1} s of video, {} KB, encoded in {:.2} s",
+        "{}x{}{}, {} frames, {:.1} s of video, {} KB, encoded in {:.2} s",
         s.width,
         s.height,
+        if s.audio { " + AAC audio" } else { "" },
         s.frames,
         s.duration_ms as f64 / 1000.0,
         s.bytes / 1024,

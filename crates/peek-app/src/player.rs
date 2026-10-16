@@ -301,9 +301,10 @@ impl PlayerView {
                             });
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "{} × {} · {} · {} · exported in {:.1} s",
+                                    "{} × {}{} · {} · {} · exported in {:.1} s",
                                     summary.width,
                                     summary.height,
+                                    if summary.audio { " with sound" } else { "" },
                                     util::clock(Duration::from_millis(summary.duration_ms as u64)),
                                     util::human_bytes(summary.bytes),
                                     seconds
