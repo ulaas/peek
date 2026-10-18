@@ -6,7 +6,7 @@ A fast, quiet remote desktop client written in Rust with egui. RDP first, VNC se
 
 Working today:
 
-- **RDP** on IronRDP: TLS + NLA (CredSSP), RemoteFX, dynamic resize, text clipboard, certificate trust on first use
+- **RDP** on IronRDP: TLS + NLA (CredSSP), RemoteFX, dynamic resize, text and file clipboard, certificate trust on first use
 - **Audio** (RDP): own low-latency output in the device's native format, Opus or PCM from the server, remote volume, per-session volume and mute, speaker indicator on tabs
 - **VNC**: in-house RFB 3.3–3.8 client with None/VNC auth and Raw, CopyRect, RRE, Hextile, ZRLE, Tight + JPEG decoders
 - Tabs, connection library (groups, favorites, search, recent), OS keychain for passwords, `.rdp` import
@@ -17,7 +17,7 @@ Working today:
 - Auto-reconnect with backoff, Wake-on-LAN, screenshot to clipboard
 - Session recording (`.peekrec`: lossless picture, Opus sound) with a built-in player and MP4 export (H.264 + AAC)
 
-Not yet: SSH, RD Gateway, file clipboard, H.264 (EGFX).
+Not yet: SSH, RD Gateway, H.264 (EGFX).
 
 The RDP path has not yet been tested against a live Windows host; VNC is tested end to end against the bundled test server.
 

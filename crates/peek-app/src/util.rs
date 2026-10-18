@@ -102,7 +102,26 @@ mod tests {
     }
 }
 
-/// Current text on the OS clipboard, if any.
-pub fn read_clipboard_text() -> Option<String> {
-    arboard::Clipboard::new().ok()?.get_text().ok().filter(|t| !t.is_empty())
+/// What the OS clipboard holds, as far as sessions can pass it on.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LocalClip {
+    Text(String),
+    Files(Vec<std::path::PathBuf>),
+}
+
+/// Current files or text on the OS clipboard, if any. Files win: a copy in
+/// Explorer may also carry the names as text.
+pub fn read_clipboard() -> Option<LocalClip> {
+    let mut cb = arboard::Clipboard::new().ok()?;
+    if let Ok(files) = cb.get().file_list()
+        && !files.is_empty()
+    {
+        return Some(LocalClip::Files(files));
+    }
+    cb.get_text().ok().filter(|t| !t.is_empty()).map(LocalClip::Text)
+}
+
+/// Put files on the OS clipboard, as Explorer's copy does.
+pub fn write_clipboard_files(paths: &[std::path::PathBuf]) -> bool {
+    arboard::Clipboard::new().and_then(|mut cb| cb.set().file_list(paths)).is_ok()
 }

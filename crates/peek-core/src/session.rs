@@ -93,6 +93,10 @@ pub enum SessionEvent {
     Resized { width: u32, height: u32 },
     Cursor(CursorUpdate),
     ClipboardText(String),
+    /// Files copied on the remote side, downloaded to local paths.
+    ClipboardFiles(Vec<std::path::PathBuf>),
+    /// Short message for the user (e.g. a clipboard transfer outcome).
+    Notice(String),
     Bell,
     /// Server certificate / host key fingerprint seen during connect.
     ServerIdentity { fingerprint: String },
@@ -115,6 +119,8 @@ pub enum AuthError {
 pub enum SessionCommand {
     Input(InputEvent),
     ClipboardText(String),
+    /// Local files offered for pasting on the remote side.
+    ClipboardFiles(Vec<std::path::PathBuf>),
     /// Ask the server for a new desktop size (RDP display control, VNC
     /// SetDesktopSize). Servers may ignore it.
     Resize { width: u32, height: u32 },

@@ -6,7 +6,7 @@ use crate::grab::GrabbedKey;
 use crate::icons;
 use crate::keymap;
 use crate::theme;
-use crate::util;
+use crate::util::{self, LocalClip};
 use egui::{Align2, Color32, ColorImage, CursorIcon, Event, Pos2, Rect as ERect, Sense, TextureHandle, TextureOptions, Vec2};
 use peek_core::{
     AuthError, ConnectRequest, Credentials, CursorUpdate, Endpoint, InputEvent, KeyCode, MouseButton, Protocol, Rect,
@@ -93,7 +93,7 @@ pub struct SessionView {
     pub show_stats: bool,
     pub recorder: Option<Recorder>,
     toolbar_pinned: bool,
-    last_clipboard: Option<String>,
+    last_clipboard: Option<LocalClip>,
     // credential form
     form_user: String,
     form_password: String,
@@ -287,11 +287,22 @@ impl SessionView {
                 }
                 SessionEvent::Cursor(c) => self.set_cursor(ctx, c),
                 SessionEvent::ClipboardText(t) => {
-                    if self.options.clipboard && self.last_clipboard.as_deref() != Some(t.as_str()) {
+                    if self.options.clipboard && !matches!(&self.last_clipboard, Some(LocalClip::Text(l)) if *l == t) {
                         ctx.copy_text(t.clone());
-                        self.last_clipboard = Some(t);
+                        self.last_clipboard = Some(LocalClip::Text(t));
                     }
                 }
+                SessionEvent::ClipboardFiles(paths) => {
+                    if self.options.clipboard && util::write_clipboard_files(&paths) {
+                        let what = match paths.as_slice() {
+                            [one] => one.file_name().map_or("1 item".into(), |n| n.to_string_lossy().into_owned()),
+                            many => format!("{} items", many.len()),
+                        };
+                        actions.push(ViewAction::Toast(format!("Copied {what} from the remote clipboard"), ToastKind::Success));
+                        self.last_clipboard = Some(LocalClip::Files(paths));
+                    }
+                }
+                SessionEvent::Notice(text) => actions.push(ViewAction::Toast(text, ToastKind::Info)),
                 SessionEvent::Bell => {}
                 SessionEvent::ServerIdentity { fingerprint } => {
                     self.fingerprint = Some(fingerprint.clone());
@@ -486,9 +497,9 @@ impl SessionView {
                     continue;
                 }
                 if down && code == KeyCode::KeyV && self.grab_ctrl && !self.grab_alt {
-                    // Offer the local clipboard first so the paste gets current text.
-                    if let Some(t) = util::read_clipboard_text() {
-                        self.offer_clipboard(t);
+                    // Offer the local clipboard first so the paste gets current content.
+                    if let Some(clip) = util::read_clipboard() {
+                        self.offer_clipboard(clip);
                     }
                 }
                 self.input(InputEvent::Key { code, down });
@@ -578,7 +589,7 @@ impl SessionView {
                 paste @ (Event::Paste(_) | Event::PasteImage(_)) if keyboard_via_egui => {
                     if let Event::Paste(text) = paste {
                         if self.options.clipboard {
-                            self.last_clipboard = Some(text.clone());
+                            self.last_clipboard = Some(LocalClip::Text(text.clone()));
                             self.send(SessionCommand::ClipboardText(text));
                         }
                     }
@@ -594,11 +605,14 @@ impl SessionView {
         }
     }
 
-    /// Offer local clipboard text to the server if it changed.
-    pub fn offer_clipboard(&mut self, text: String) {
-        if self.options.clipboard && self.is_live() && self.last_clipboard.as_deref() != Some(text.as_str()) {
-            self.last_clipboard = Some(text.clone());
-            self.send(SessionCommand::ClipboardText(text));
+    /// Offer the local clipboard to the server if it changed.
+    pub fn offer_clipboard(&mut self, clip: LocalClip) {
+        if self.options.clipboard && self.is_live() && self.last_clipboard.as_ref() != Some(&clip) {
+            self.last_clipboard = Some(clip.clone());
+            self.send(match clip {
+                LocalClip::Text(t) => SessionCommand::ClipboardText(t),
+                LocalClip::Files(f) => SessionCommand::ClipboardFiles(f),
+            });
         }
     }
 

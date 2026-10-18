@@ -1789,9 +1789,9 @@ impl eframe::App for PeekApp {
 
         // Coming back to Peek: hand the current clipboard to the active session.
         if window_focused && !self.window_focused {
-            if let Some(text) = util::read_clipboard_text() {
+            if let Some(clip) = util::read_clipboard() {
                 if let Some(s) = self.active_session_mut() {
-                    s.offer_clipboard(text);
+                    s.offer_clipboard(clip);
                 }
             }
         }

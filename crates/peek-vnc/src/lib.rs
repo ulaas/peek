@@ -170,6 +170,8 @@ pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result
                 }
                 Some(SessionCommand::CtrlAltDel) => {}
                 Some(SessionCommand::ClipboardText(t)) => { let _ = tx.send(msg_cut_text(&t)); }
+                // RFB clipboard carries text only.
+                Some(SessionCommand::ClipboardFiles(_)) => {}
                 Some(SessionCommand::Resize { width, height }) => {
                     let id = screen_id.load(Ordering::Relaxed);
                     if id != NO_SCREEN && width > 0 && height > 0 {

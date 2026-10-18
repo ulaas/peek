@@ -367,6 +367,13 @@ async fn active_session(
                     },
                     None => Vec::new(),
                 },
+                Some(SessionCommand::ClipboardFiles(paths)) => match &clip {
+                    Some(link) => match link.offer_files(&mut stage, &paths).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        Some(frame) if !frame.is_empty() => vec![ActiveStageOutput::ResponseFrame(frame)],
+                        _ => Vec::new(),
+                    },
+                    None => Vec::new(),
+                },
                 Some(SessionCommand::Refresh) => Vec::new(),
             },
         };
@@ -440,13 +447,13 @@ async fn active_session(
         }
 
         if let Some(link) = &clip {
-            let (frames, texts) = link.drain(&mut stage).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let (frames, events) = link.drain(&mut stage).map_err(|e| anyhow::anyhow!("{e}"))?;
             for frame in frames {
                 ctx.stats.add_out(frame.len());
                 writer.write_all(&frame).await.context("connection lost")?;
             }
-            for t in texts {
-                ctx.events.send(SessionEvent::ClipboardText(t));
+            for e in events {
+                ctx.events.send(e);
             }
         }
     };
