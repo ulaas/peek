@@ -5,6 +5,7 @@ mod grab;
 mod icons;
 mod keymap;
 mod logo;
+mod mark;
 mod player;
 mod theme;
 mod util;
