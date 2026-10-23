@@ -43,8 +43,11 @@
           <RegistryValue Root="HKLM" Key="Software\Classes\Peek.RdpFile\shell\open\command" Value="&quot;[#PeekExe]&quot; &quot;%1&quot;" Type="string" />
           <RegistryValue Root="HKLM" Key="Software\Classes\.rdp\OpenWithProgids" Name="Peek.RdpFile" Value="Peek.RdpFile" Type="string" />
         </Component>
-        <Component Id="Licenses">
+        <!-- One file per component: WiX can only generate the component GUID then. -->
+        <Component Id="LicenseMit">
           <File Source="$(BinDir)\LICENSE-MIT" />
+        </Component>
+        <Component Id="LicenseApache">
           <File Source="$(BinDir)\LICENSE-APACHE" />
         </Component>
       </Directory>
@@ -60,7 +63,8 @@
 
     <Feature Id="Main">
       <ComponentRef Id="App" />
-      <ComponentRef Id="Licenses" />
+      <ComponentRef Id="LicenseMit" />
+      <ComponentRef Id="LicenseApache" />
       <ComponentRef Id="StartMenu" />
     </Feature>
   </Package>
