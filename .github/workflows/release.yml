@@ -1,15 +1,22 @@
 # Builds Peek for Windows, Linux and macOS.
 #
-# Pushing a tag like v0.5.0 builds, tests and publishes a GitHub release with
-# the notes from that version's CHANGELOG.md section. Running it by hand
-# (Actions > Release > Run workflow) is a dry run: it builds and uploads the
-# packages as workflow artifacts and publishes nothing.
+# Pushing a tag like v0.5.0 builds and publishes a GitHub release with the
+# notes from that version's CHANGELOG.md section, once CI (ci.yml) has passed
+# on the tagged commit: the `ci-gate` job waits for it, so the commit and the
+# tag can be pushed together. Running it by hand (Actions > Release > Run
+# workflow) is a dry run: it builds and uploads the packages as workflow
+# artifacts and publishes nothing.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      skip_ci_gate:
+        description: "Build without waiting for a green CI run on this commit (emergencies only)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,8 +29,51 @@ env:
   OPUS_STATIC: "1"
 
 jobs:
+  # Waits for ci.yml on the same commit, so the commit and the tag can be pushed together: the
+  # builds start once a CI run on that commit is green. Fails if CI fails or is cancelled, or if
+  # no CI run shows up for the commit within 10 minutes.
+  ci-gate:
+    name: Wait for CI on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for a green CI run
+        if: inputs.skip_ci_gate != true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          waited=0
+          while :; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=50" \
+              --jq '[.workflow_runs[] | {status, conclusion, url: .html_url}]')
+            total=$(jq length <<<"$runs")
+            if jq -e 'any(.[]; .conclusion == "success")' <<<"$runs" >/dev/null; then
+              echo "CI passed on $SHA: $(jq -r 'first(.[] | select(.conclusion == "success") | .url)' <<<"$runs")"
+              exit 0
+            fi
+            if (( total > 0 )) && ! jq -e 'any(.[]; .status != "completed")' <<<"$runs" >/dev/null; then
+              echo "::error::CI did not pass on $SHA (re-run it, then re-run this release):"
+              jq -r '.[] | "  \(.conclusion): \(.url)"' <<<"$runs"
+              exit 1
+            fi
+            if (( total == 0 && waited >= 600 )); then
+              echo "::error::No CI run for $SHA after 10 minutes. Push the commit to main first (or run CI on it by hand)."
+              exit 1
+            fi
+            echo "Waiting for CI on $SHA ($total run(s), ${waited}s so far)"
+            sleep 60; waited=$((waited + 60))
+          done
+      - name: CI gate skipped
+        if: inputs.skip_ci_gate == true
+        run: echo "::warning::Release built without waiting for CI (skip_ci_gate)."
+
   build:
     name: ${{ matrix.name }}
+    needs: ci-gate
     strategy:
       fail-fast: false
       matrix:
@@ -69,9 +119,6 @@ jobs:
           dotnet tool install --global wix --version 5.0.2
           export PATH="$PATH:$HOME/.dotnet/tools" && cygpath -w "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
           wix extension add -g WixToolset.UI.wixext/5.0.2
-
-      - name: Test
-        run: cargo test --workspace --locked
 
       - name: Use the static C runtime on Windows
         if: runner.os == 'Windows'

@@ -59,7 +59,7 @@ cargo run -p peek-record --features mp4 --example export -- in.peekrec out.mp4 [
 
 Building needs Rust 1.90+ and CMake (for the bundled Opus); on Linux also `libasound2-dev` and `pkg-config`.
 
-Releases: bump `version` in `Cargo.toml`, add a `## <version>` section to `CHANGELOG.md`, commit, then push a tag `v<version>`. `.github/workflows/release.yml` builds, tests and publishes the release with that section as its notes. Running the workflow by hand from the Actions tab is a dry run that only uploads the packages as artifacts.
+Releases: bump `version` in `Cargo.toml`, add a `## <version>` section to `CHANGELOG.md`, commit, then push a tag `v<version>`. `.github/workflows/release.yml` waits for CI (`.github/workflows/ci.yml`: fmt, clippy, tests on all three systems) to pass on that commit, then builds and publishes the release with that section as its notes. Running the workflow by hand from the Actions tab is a dry run that only uploads the packages as artifacts.
 
 Disk use is kept in check by the build profiles (dependencies built without debug info) and `scripts/hygiene.ps1`. The script removes superseded build outputs older than 3 days and runs `cargo clean` if `target/` passes 12 GB. `dev.ps1` runs it after every cargo command.
 
