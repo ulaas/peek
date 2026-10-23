@@ -67,7 +67,14 @@ impl PlayerView {
             path,
             player,
             export: None,
-            audio: PlayerAudio { out: None, open_failed: false, decoder: None, volume: 100, muted: false, present: false },
+            audio: PlayerAudio {
+                out: None,
+                open_failed: false,
+                decoder: None,
+                volume: 100,
+                muted: false,
+                present: false,
+            },
             texture: None,
             needs_full: true,
             playing: true,
@@ -93,7 +100,11 @@ impl PlayerView {
             for y in r.y..r.bottom() {
                 px.extend_from_slice(bytemuck::cast_slice(fb.row(y, r.x, r.w)));
             }
-            tex.set_partial([r.x as usize, r.y as usize], ColorImage::new([r.w as usize, r.h as usize], px), TextureOptions::LINEAR);
+            tex.set_partial(
+                [r.x as usize, r.y as usize],
+                ColorImage::new([r.w as usize, r.h as usize], px),
+                TextureOptions::LINEAR,
+            );
         }
     }
 
@@ -134,11 +145,22 @@ impl PlayerView {
             ui.painter().image(tex.id(), r, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
             if let Some((x, y)) = self.player.pointer {
                 let p = r.min + Vec2::new(x as f32, y as f32) * k;
-                ui.painter().circle(p, 5.0, theme::ACCENT_DARK.gamma_multiply(0.7), egui::Stroke::new(1.5, Color32::WHITE));
+                ui.painter().circle(
+                    p,
+                    5.0,
+                    theme::ACCENT_DARK.gamma_multiply(0.7),
+                    egui::Stroke::new(1.5, Color32::WHITE),
+                );
             }
         }
         if let Some(e) = &self.error {
-            ui.painter().text(area.center(), egui::Align2::CENTER_CENTER, e, egui::FontId::proportional(14.0), theme::DANGER);
+            ui.painter().text(
+                area.center(),
+                egui::Align2::CENTER_CENTER,
+                e,
+                egui::FontId::proportional(14.0),
+                theme::DANGER,
+            );
         }
         self.export_card(ui, area);
 
@@ -165,11 +187,14 @@ impl PlayerView {
                     ))
                     .monospace(),
                 );
-                egui::ComboBox::from_id_salt("speed").selected_text(format!("{}×", self.speed)).width(60.0).show_ui(ui, |ui| {
-                    for s in [0.5f32, 1.0, 2.0, 4.0, 8.0] {
-                        ui.selectable_value(&mut self.speed, s, format!("{s}×"));
-                    }
-                });
+                egui::ComboBox::from_id_salt("speed").selected_text(format!("{}×", self.speed)).width(60.0).show_ui(
+                    ui,
+                    |ui| {
+                        for s in [0.5f32, 1.0, 2.0, 4.0, 8.0] {
+                            ui.selectable_value(&mut self.speed, s, format!("{s}×"));
+                        }
+                    },
+                );
                 if self.audio.present {
                     let a = &mut self.audio;
                     let icon = if a.muted || a.volume == 0 {
@@ -179,7 +204,13 @@ impl PlayerView {
                     } else {
                         icons::SPEAKER_HIGH
                     };
-                    let tip = if (self.speed - 1.0).abs() > f32::EPSILON { "Sound plays at 1x speed only" } else if a.muted { "Unmute" } else { "Mute" };
+                    let tip = if (self.speed - 1.0).abs() > f32::EPSILON {
+                        "Sound plays at 1x speed only"
+                    } else if a.muted {
+                        "Unmute"
+                    } else {
+                        "Mute"
+                    };
                     let mut cut = false;
                     if ui.button(icon).on_hover_text(tip).clicked() {
                         a.muted = !a.muted;
@@ -187,7 +218,11 @@ impl PlayerView {
                     }
                     let mut v = if a.muted { 0 } else { a.volume };
                     ui.spacing_mut().slider_width = 70.0;
-                    if ui.add(egui::Slider::new(&mut v, 0..=100).show_value(false)).on_hover_text(format!("Volume {v}%")).changed() {
+                    if ui
+                        .add(egui::Slider::new(&mut v, 0..=100).show_value(false))
+                        .on_hover_text(format!("Volume {v}%"))
+                        .changed()
+                    {
                         a.volume = v;
                         a.muted = v == 0;
                         cut = a.muted;
@@ -218,7 +253,8 @@ impl PlayerView {
         if matches!(self.export, Some(ExportState::Running(_))) {
             return;
         }
-        let stem = self.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "recording".into());
+        let stem =
+            self.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "recording".into());
         let mut dialog = rfd::FileDialog::new().add_filter("MP4 video", &["mp4"]).set_file_name(format!("{stem}.mp4"));
         if let Some(dir) = self.path.parent() {
             dialog = dialog.set_directory(dir);
@@ -227,7 +263,8 @@ impl PlayerView {
         let progress = Arc::new(AtomicU32::new(0));
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, done) = mpsc::channel();
-        let (input, out, p, c, repaint) = (self.path.clone(), output.clone(), progress.clone(), cancel.clone(), ctx.clone());
+        let (input, out, p, c, repaint) =
+            (self.path.clone(), output.clone(), progress.clone(), cancel.clone(), ctx.clone());
         let spawned = std::thread::Builder::new().name("peek-export".into()).spawn(move || {
             let result = export_mp4(&input, &out, Mp4Options::default(), |f| {
                 let permille = (f * 1000.0) as u32;
@@ -247,16 +284,16 @@ impl PlayerView {
 
     /// Progress or result card over the bottom right of the picture.
     fn export_card(&mut self, ui: &mut egui::Ui, area: ERect) {
-        if let Some(ExportState::Running(job)) = &self.export {
-            if let Ok(result) = job.done.try_recv() {
-                let seconds = job.started.elapsed().as_secs_f32();
-                let output = job.output.clone();
-                self.export = match result {
-                    Ok(summary) => Some(ExportState::Finished { output, summary, seconds }),
-                    Err(e) if e.contains("cancelled") => None,
-                    Err(e) => Some(ExportState::Failed(e)),
-                };
-            }
+        if let Some(ExportState::Running(job)) = &self.export
+            && let Ok(result) = job.done.try_recv()
+        {
+            let seconds = job.started.elapsed().as_secs_f32();
+            let output = job.output.clone();
+            self.export = match result {
+                Ok(summary) => Some(ExportState::Finished { output, summary, seconds }),
+                Err(e) if e.contains("cancelled") => None,
+                Err(e) => Some(ExportState::Failed(e)),
+            };
         }
         let Some(state) = &self.export else { return };
         let mut close = false;
@@ -273,7 +310,10 @@ impl PlayerView {
                         ExportState::Running(job) => {
                             let f = job.progress.load(Ordering::Relaxed) as f32 / 1000.0;
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(format!("{}  Exporting MP4", icons::EXPORT)).font(theme::semibold(13.5)));
+                                ui.label(
+                                    egui::RichText::new(format!("{}  Exporting MP4", icons::EXPORT))
+                                        .font(theme::semibold(13.5)),
+                                );
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     ui.label(egui::RichText::new(format!("{:.0}%", f * 100.0)).monospace().weak());
                                 });
@@ -282,7 +322,11 @@ impl PlayerView {
                             ui.add(egui::ProgressBar::new(f).desired_height(6.0).fill(theme::accent(ui)));
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
-                                let name = job.output.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                                let name = job
+                                    .output
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_default();
                                 ui.add(egui::Label::new(egui::RichText::new(name).small().weak()).truncate());
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if widgets::secondary_button(ui, "Cancel", Vec2::new(72.0, 26.0)).clicked() {
@@ -324,7 +368,11 @@ impl PlayerView {
                         }
                         ExportState::Failed(e) => {
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(format!("{}  Export failed", icons::WARNING)).font(theme::semibold(13.5)).color(theme::DANGER));
+                                ui.label(
+                                    egui::RichText::new(format!("{}  Export failed", icons::WARNING))
+                                        .font(theme::semibold(13.5))
+                                        .color(theme::DANGER),
+                                );
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     close = widgets::icon_button_sized(ui, icons::X, "Dismiss", 22.0, None).clicked();
                                 });

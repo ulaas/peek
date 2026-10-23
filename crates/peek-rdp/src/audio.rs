@@ -66,7 +66,7 @@ impl SessionSound {
 
     fn decode(&mut self, f: &AudioFormat, data: &[u8]) -> Option<AudioChunk> {
         let samples: Vec<i16> = match (f.format, f.bits_per_sample) {
-            (WaveFormat::PCM, 16) => data.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect(),
+            (WaveFormat::PCM, 16) => data.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes([b[0], b[1]])).collect(),
             (WaveFormat::PCM, 8) => data.iter().map(|&b| ((b as i16) - 128) << 8).collect(),
             (WaveFormat::OPUS, _) => {
                 let key = (f.n_samples_per_sec, f.n_channels);
@@ -90,7 +90,7 @@ impl SessionSound {
         let chunk = format.and_then(|f| self.decode(f, data));
         let Some(chunk) = chunk else {
             self.failed += 1;
-            if self.failed == 1 || self.failed % 500 == 0 {
+            if self.failed == 1 || self.failed.is_multiple_of(500) {
                 tracing::warn!(failed = self.failed, ?format, bytes = data.len(), "audio: cannot decode wave");
             }
             return;
@@ -208,13 +208,18 @@ impl SvcProcessor for SoundChannel {
                     dgram_port: 0,
                 }))];
                 if af.version >= Version::V6 {
-                    msgs.push(Self::reply(ClientAudioOutputPdu::QualityMode(QualityModePdu { quality_mode: QualityMode::High })));
+                    msgs.push(Self::reply(ClientAudioOutputPdu::QualityMode(QualityModePdu {
+                        quality_mode: QualityMode::High,
+                    })));
                 }
                 msgs
             }
             ServerAudioOutputPdu::Training(t) => {
                 let pack_size = u16::try_from(t.data.len()).unwrap_or(u16::MAX);
-                vec![Self::reply(ClientAudioOutputPdu::TrainingConfirm(TrainingConfirmPdu { timestamp: t.timestamp, pack_size }))]
+                vec![Self::reply(ClientAudioOutputPdu::TrainingConfirm(TrainingConfirmPdu {
+                    timestamp: t.timestamp,
+                    pack_size,
+                }))]
             }
             ServerAudioOutputPdu::Wave2(w) => self.wave(w.format_no, &w.data, w.timestamp, w.block_no),
             ServerAudioOutputPdu::Wave(w) => self.wave(w.format_no, &w.data, w.timestamp, w.block_no),
@@ -277,7 +282,15 @@ mod tests {
     }
 
     fn adpcm() -> AudioFormat {
-        AudioFormat { format: WaveFormat::ADPCM, n_channels: 2, n_samples_per_sec: 22_050, n_avg_bytes_per_sec: 22_311, n_block_align: 1024, bits_per_sample: 4, data: Some(vec![0; 32]) }
+        AudioFormat {
+            format: WaveFormat::ADPCM,
+            n_channels: 2,
+            n_samples_per_sec: 22_050,
+            n_avg_bytes_per_sec: 22_311,
+            n_block_align: 1024,
+            bits_per_sample: 4,
+            data: Some(vec![0; 32]),
+        }
     }
 
     fn server(pdu: ServerAudioOutputPdu<'_>) -> Vec<u8> {
@@ -295,12 +308,14 @@ mod tests {
         let mut ch = SoundChannel::new(SessionSound::new(control, false));
 
         // Server offers ADPCM (unsupported), PCM 22.05 kHz, PCM 44.1 kHz.
-        let offer = ServerAudioFormatPdu { version: Version::V8, formats: vec![adpcm(), pcm(22_050, 2), pcm(44_100, 2)] };
+        let offer =
+            ServerAudioFormatPdu { version: Version::V8, formats: vec![adpcm(), pcm(22_050, 2), pcm(44_100, 2)] };
         let replies = ch.process(&server(ServerAudioOutputPdu::AudioFormat(offer))).unwrap();
         assert_eq!(replies.len(), 2, "formats + quality mode");
         assert_eq!(ch.agreed, vec![pcm(22_050, 2), pcm(44_100, 2)], "server order, unsupported dropped");
 
-        let replies = ch.process(&server(ServerAudioOutputPdu::Training(TrainingPdu { timestamp: 7, data: vec![] }))).unwrap();
+        let replies =
+            ch.process(&server(ServerAudioOutputPdu::Training(TrainingPdu { timestamp: 7, data: vec![] }))).unwrap();
         assert_eq!(replies.len(), 1);
 
         let data: Vec<u8> = [100i16, -100, 200, -200].iter().flat_map(|v| v.to_le_bytes()).collect();

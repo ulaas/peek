@@ -133,7 +133,9 @@ mod imp {
                 (GrabMode::System | GrabMode::All, 0) => {
                     // SAFETY: installs a hook procedure from this module; it is
                     // removed again in set_mode(Off) / Drop.
-                    let h = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), GetModuleHandleW(std::ptr::null()), 0) };
+                    let h = unsafe {
+                        SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), GetModuleHandleW(std::ptr::null()), 0)
+                    };
                     if h.is_null() {
                         tracing::warn!("keyboard grab unavailable");
                     } else {

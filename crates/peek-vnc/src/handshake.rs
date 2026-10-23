@@ -59,8 +59,8 @@ pub fn vnc_auth_response(challenge: &[u8; 16], password: &[u8]) -> [u8; 16] {
     }
     let cipher = Des::new_from_slice(&key).expect("8-byte key");
     let mut out = *challenge;
-    for chunk in out.chunks_exact_mut(8) {
-        let mut block = des::cipher::Block::<Des>::try_from(&*chunk).expect("8-byte block");
+    for chunk in out.as_chunks_mut::<8>().0 {
+        let mut block = des::cipher::Block::<Des>::from(*chunk);
         cipher.encrypt_block(&mut block);
         chunk.copy_from_slice(&block);
     }
@@ -167,7 +167,8 @@ mod tests {
     fn vnc_auth_des_vector() {
         // FIPS test vector: key 133457799BBCDFF1, P 0123456789ABCDEF -> C 85E813540F0AB405.
         // VNC mirrors each key byte, so pass the mirrored key as "password".
-        let key: Vec<u8> = [0x13u8, 0x34, 0x57, 0x79, 0x9B, 0xBC, 0xDF, 0xF1].iter().map(|b| b.reverse_bits()).collect();
+        let key: Vec<u8> =
+            [0x13u8, 0x34, 0x57, 0x79, 0x9B, 0xBC, 0xDF, 0xF1].iter().map(|b| b.reverse_bits()).collect();
         let mut challenge = [0u8; 16];
         challenge[..8].copy_from_slice(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
         challenge[8..].copy_from_slice(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);

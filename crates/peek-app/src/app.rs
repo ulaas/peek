@@ -14,10 +14,15 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+// A handful of tabs that live as long as the window: boxing the session would only add indirection.
+#[allow(clippy::large_enum_variant)]
 enum Tab {
     Session(SessionView),
     Player(PlayerView),
 }
+
+/// An open session on the home screen: tab index, title, live thumbnail (texture and size), status color.
+type LiveTab = (usize, String, Option<(egui::TextureId, Vec2)>, Color32);
 
 impl Tab {
     fn title(&self) -> &str {
@@ -112,13 +117,7 @@ pub struct PeekApp {
 /// Credentials are keyed by endpoint so quick connect and saved
 /// connections to the same account share one keychain entry.
 fn vault_key(e: &Endpoint) -> String {
-    format!(
-        "{}://{}@{}:{}",
-        e.protocol.scheme(),
-        e.username.as_deref().unwrap_or(""),
-        e.host.to_lowercase(),
-        e.port
-    )
+    format!("{}://{}@{}:{}", e.protocol.scheme(), e.username.as_deref().unwrap_or(""), e.host.to_lowercase(), e.port)
 }
 
 fn open_in_file_manager(path: &std::path::Path) {
@@ -171,11 +170,14 @@ fn experience_editor(ui: &mut egui::Ui, o: &mut peek_store::ProfileOptions, labe
     });
     ui.end_row();
     row(ui, "Colors");
-    egui::ComboBox::from_id_salt("ed-depth").selected_text(Experience::color_depth_label(e.color_depth)).width(field_w).show_ui(ui, |ui| {
-        for d in Experience::COLOR_DEPTHS {
-            ui.selectable_value(&mut e.color_depth, d, Experience::color_depth_label(d));
-        }
-    });
+    egui::ComboBox::from_id_salt("ed-depth")
+        .selected_text(Experience::color_depth_label(e.color_depth))
+        .width(field_w)
+        .show_ui(ui, |ui| {
+            for d in Experience::COLOR_DEPTHS {
+                ui.selectable_value(&mut e.color_depth, d, Experience::color_depth_label(d));
+            }
+        });
     ui.end_row();
     row(ui, "Bandwidth");
     ui.checkbox(&mut e.compression, "Compress the stream (less traffic, a little more CPU)");
@@ -195,14 +197,19 @@ fn resolution_picker(ui: &mut egui::Ui, res: &mut Resolution, custom: &mut bool,
     ui.vertical(|ui| {
         let selected = if *custom { "Custom".to_string() } else { res.label() };
         egui::ComboBox::from_id_salt("ed-resolution").selected_text(selected).width(200.0).show_ui(ui, |ui| {
-            if ui.selectable_label(*res == Resolution::Window && !*custom, "Match window").on_hover_text("Follows the window when it is resized").clicked() {
+            if ui
+                .selectable_label(*res == Resolution::Window && !*custom, "Match window")
+                .on_hover_text("Follows the window when it is resized")
+                .clicked()
+            {
                 *res = Resolution::Window;
                 *custom = false;
             }
             ui.separator();
             for (w, h) in Resolution::PRESETS {
                 let r = Resolution::Fixed { width: w, height: h };
-                let text = if r == Resolution::default() { format!("{w} × {h}   (default)") } else { format!("{w} × {h}") };
+                let text =
+                    if r == Resolution::default() { format!("{w} × {h}   (default)") } else { format!("{w} × {h}") };
                 if ui.selectable_label(*res == r && !*custom, text).clicked() {
                     *res = r;
                     *custom = false;
@@ -216,19 +223,19 @@ fn resolution_picker(ui: &mut egui::Ui, res: &mut Resolution, custom: &mut bool,
                 }
             }
         });
-        if *custom {
-            if let Resolution::Fixed { width, height } = res {
-                let (mut w, mut h) = (*width, *height);
-                ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut w).range(200..=8192).speed(8).suffix(" px"));
-                    ui.label("×");
-                    ui.add(egui::DragValue::new(&mut h).range(200..=8192).speed(8).suffix(" px"));
-                });
-                *res = Resolution::fixed(w, h);
-            }
+        if *custom && let Resolution::Fixed { width, height } = res {
+            let (mut w, mut h) = (*width, *height);
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut w).range(200..=8192).speed(8).suffix(" px"));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut h).range(200..=8192).speed(8).suffix(" px"));
+            });
+            *res = Resolution::fixed(w, h);
         }
         if protocol == Protocol::Vnc && *res != Resolution::Window {
-            ui.label(RichText::new("VNC servers pick their own size; this only applies with Match window").small().weak());
+            ui.label(
+                RichText::new("VNC servers pick their own size; this only applies with Match window").small().weak(),
+            );
         }
     });
 }
@@ -343,11 +350,16 @@ impl PeekApp {
 
     fn open_endpoint(&mut self, ctx: &egui::Context, endpoint: Endpoint, profile_id: Option<Uuid>) {
         // Re-use a live tab for the same target instead of opening a second session.
-        if let Some(i) = self.tabs.iter().position(|t| matches!(t, Tab::Session(s) if s.endpoint == endpoint && s.is_live())) {
+        if let Some(i) =
+            self.tabs.iter().position(|t| matches!(t, Tab::Session(s) if s.endpoint == endpoint && s.is_live()))
+        {
             self.active = Some(i);
             return;
         }
-        let profile = profile_id.and_then(|id| self.store.library.get(id)).or_else(|| self.store.library.find_endpoint(&endpoint)).cloned();
+        let profile = profile_id
+            .and_then(|id| self.store.library.get(id))
+            .or_else(|| self.store.library.find_endpoint(&endpoint))
+            .cloned();
         let (title, options, pid, domain) = match &profile {
             Some(p) => (p.name.clone(), p.options.clone(), Some(p.id), p.domain.clone()),
             None => (endpoint.host.clone(), Default::default(), None, None),
@@ -401,12 +413,11 @@ impl PeekApp {
         }
         view.vault_key = vault_key(&view.endpoint);
         let password = if password.is_empty() { Vault::get(&view.vault_key) } else { Some(password) };
-        if remember {
-            if let Some(pw) = &password {
-                if let Err(e) = Vault::set(&view.vault_key, pw) {
-                    toast = Some(format!("Could not save the password: {e}"));
-                }
-            }
+        if remember
+            && let Some(pw) = &password
+            && let Err(e) = Vault::set(&view.vault_key, pw)
+        {
+            toast = Some(format!("Could not save the password: {e}"));
         }
         if let Some(pid) = view.profile_id {
             profile_update = Some((pid, view.endpoint.username.clone()));
@@ -421,13 +432,12 @@ impl PeekApp {
         } else {
             view.phase = Phase::NeedCredentials { message: None };
         }
-        if let Some((pid, user)) = profile_update {
-            if let Some(p) = self.store.library.get_mut(pid) {
-                if p.endpoint.username != user {
-                    p.endpoint.username = user;
-                    self.save_library();
-                }
-            }
+        if let Some((pid, user)) = profile_update
+            && let Some(p) = self.store.library.get_mut(pid)
+            && p.endpoint.username != user
+        {
+            p.endpoint.username = user;
+            self.save_library();
         }
         if let Some(t) = toast {
             self.toast(t, ToastKind::Warning);
@@ -481,7 +491,9 @@ impl PeekApp {
     fn handle_action(&mut self, ctx: &egui::Context, id: u64, action: ViewAction) {
         match action {
             ViewAction::ToggleFullscreen => self.set_fullscreen(ctx, !self.fullscreen),
-            ViewAction::SubmitCredentials { user, password, remember } => self.submit_credentials(ctx, id, user, password, remember),
+            ViewAction::SubmitCredentials { user, password, remember } => {
+                self.submit_credentials(ctx, id, user, password, remember)
+            }
             ViewAction::Close => {
                 if let Some(i) = self.tabs.iter().position(|t| matches!(t, Tab::Session(s) if s.id == id)) {
                     self.close_tab(i);
@@ -586,7 +598,8 @@ impl PeekApp {
             Command::ToggleRecording => {
                 if let Some(s) = self.active_session_mut() {
                     let id = s.id;
-                    let action = if s.recorder.is_some() { ViewAction::StopRecording } else { ViewAction::StartRecording };
+                    let action =
+                        if s.recorder.is_some() { ViewAction::StopRecording } else { ViewAction::StartRecording };
                     self.handle_action(ctx, id, action);
                 }
             }
@@ -616,7 +629,8 @@ impl PeekApp {
             Some(p) => (p.clone(), false),
             None => (Profile::new(Endpoint::new(Protocol::Rdp, "")), true),
         };
-        let address = if is_new { String::new() } else { format!("{}:{}", profile.endpoint.host, profile.endpoint.port) };
+        let address =
+            if is_new { String::new() } else { format!("{}:{}", profile.endpoint.host, profile.endpoint.port) };
         let has_saved_password = !is_new && Vault::get(&vault_key(&profile.endpoint)).is_some();
         self.editor = Some(Editor {
             user: profile.endpoint.username.clone().unwrap_or_default(),
@@ -645,14 +659,24 @@ impl PeekApp {
         let height = 44.0;
         egui::Panel::top("topbar")
             .exact_size(height)
-            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin { left: 10, right: 0, top: 0, bottom: 0 }))
+            .frame(egui::Frame::new().fill(ui.visuals().panel_fill).inner_margin(egui::Margin {
+                left: 10,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            }))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let (rect, logo) = ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::click());
                     let hover = ui.ctx().animate_bool_with_time(logo.id, logo.hovered(), 0.12);
                     let r = rect.expand(hover);
-                    ui.painter().image(self.logo.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                    ui.painter().image(
+                        self.logo.id(),
+                        r,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
                     let tip = format!("Peek {}  ·  {}", logo::VERSION, logo::short_commit());
                     if logo.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip).clicked() {
                         cmd = Some(Command::About);
@@ -663,7 +687,9 @@ impl PeekApp {
                         cmd = Some(Command::ToggleSidebar);
                     }
                     ui.add_space(4.0);
-                    if widgets::nav_chip(ui, egui::Id::unique("tab-home"), icons::HOUSE, "Home", self.active.is_none()).clicked() {
+                    if widgets::nav_chip(ui, egui::Id::unique("tab-home"), icons::HOUSE, "Home", self.active.is_none())
+                        .clicked()
+                    {
                         self.active = None;
                     }
                     for (i, tab) in self.tabs.iter().enumerate() {
@@ -671,7 +697,14 @@ impl PeekApp {
                             Tab::Session(s) => (s.status_color(), s.id, s.audio_indicator()),
                             Tab::Player(_) => (theme::accent(ui), u64::MAX - i as u64, None),
                         };
-                        let out = widgets::tab_chip(ui, egui::Id::unique(("tab", key)), tab.title(), dot, self.active == Some(i), audio);
+                        let out = widgets::tab_chip(
+                            ui,
+                            egui::Id::unique(("tab", key)),
+                            tab.title(),
+                            dot,
+                            self.active == Some(i),
+                            audio,
+                        );
                         if out.toggle_audio {
                             toggle_audio = Some(i);
                         }
@@ -685,41 +718,67 @@ impl PeekApp {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
                         let size = Vec2::new(46.0, height);
-                        if widgets::window_button(ui, widgets::WindowButton::Close, size).on_hover_text("Close").clicked() {
+                        if widgets::window_button(ui, widgets::WindowButton::Close, size)
+                            .on_hover_text("Close")
+                            .clicked()
+                        {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
-                        let (kind, tip) = if maximized { (widgets::WindowButton::Restore, "Restore") } else { (widgets::WindowButton::Maximize, "Maximize") };
+                        let (kind, tip) = if maximized {
+                            (widgets::WindowButton::Restore, "Restore")
+                        } else {
+                            (widgets::WindowButton::Maximize, "Maximize")
+                        };
                         if widgets::window_button(ui, kind, size).on_hover_text(tip).clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                         }
-                        if widgets::window_button(ui, widgets::WindowButton::Minimize, size).on_hover_text("Minimize").clicked() {
+                        if widgets::window_button(ui, widgets::WindowButton::Minimize, size)
+                            .on_hover_text("Minimize")
+                            .clicked()
+                        {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
                         ui.add_space(10.0);
                         ui.spacing_mut().item_spacing.x = 6.0;
-                        if widgets::nav_chip(ui, egui::Id::unique("settings-chip"), icons::GEAR, "Settings", self.settings_open)
-                            .on_hover_text("Settings (Ctrl+,)")
-                            .clicked()
+                        if widgets::nav_chip(
+                            ui,
+                            egui::Id::unique("settings-chip"),
+                            icons::GEAR,
+                            "Settings",
+                            self.settings_open,
+                        )
+                        .on_hover_text("Settings (Ctrl+,)")
+                        .clicked()
                         {
                             cmd = Some(Command::Settings);
                         }
                         let (rect, _) = ui.allocate_exact_size(Vec2::new(260.0, 30.0), egui::Sense::hover());
                         let resp = ui
                             .scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-                                widgets::search_field(ui, &mut self.quick, icons::LIGHTNING, "Connect to…   Ctrl+L", egui::Id::unique("quick-top"), 13.0, 30.0)
+                                widgets::search_field(
+                                    ui,
+                                    &mut self.quick,
+                                    icons::LIGHTNING,
+                                    "Connect to…   Ctrl+L",
+                                    egui::Id::unique("quick-top"),
+                                    13.0,
+                                    30.0,
+                                )
                             })
                             .inner;
                         if self.focus_quick && self.active.is_some() {
                             resp.request_focus();
                             self.focus_quick = false;
                         }
-                        if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !self.quick.trim().is_empty() {
+                        if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !self.quick.trim().is_empty()
+                        {
                             cmd = Some(Command::QuickConnect(self.quick.clone()));
                         }
                         // Whatever is left between the tabs and the controls moves the window.
                         let rest = ui.available_rect_before_wrap();
                         if rest.width() > 4.0 {
-                            let drag = ui.interact(rest, egui::Id::unique("titlebar-drag"), egui::Sense::click_and_drag());
+                            let drag =
+                                ui.interact(rest, egui::Id::unique("titlebar-drag"), egui::Sense::click_and_drag());
                             if drag.double_clicked() {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
                             } else if drag.drag_started_by(egui::PointerButton::Primary) {
@@ -753,7 +812,8 @@ impl PeekApp {
         let Some(pos) = ctx.input(|i| i.pointer.latest_pos()) else { return };
         let r = ctx.content_rect();
         let m = 5.0;
-        let (l, rt, t, b) = (pos.x <= r.left() + m, pos.x >= r.right() - m, pos.y <= r.top() + m, pos.y >= r.bottom() - m);
+        let (l, rt, t, b) =
+            (pos.x <= r.left() + m, pos.x >= r.right() - m, pos.y <= r.top() + m, pos.y >= r.bottom() - m);
         use egui::{CursorIcon as C, ResizeDirection as D};
         let (dir, icon) = match (l, rt, t, b) {
             (true, _, true, _) => (D::NorthWest, C::ResizeNwSe),
@@ -860,7 +920,12 @@ impl PeekApp {
         egui::Panel::left("library")
             .default_size(272.0)
             .min_size(220.0)
-            .frame(egui::Frame::new().fill(ui.visuals().window_fill).inner_margin(egui::Margin { left: 10, right: 10, top: 12, bottom: 8 }))
+            .frame(egui::Frame::new().fill(ui.visuals().window_fill).inner_margin(egui::Margin {
+                left: 10,
+                right: 10,
+                top: 12,
+                bottom: 8,
+            }))
             .show_collapsible(ui, &mut open, |ui| {
                 let total = self.store.library.profiles.len();
                 ui.horizontal(|ui| {
@@ -876,7 +941,15 @@ impl PeekApp {
                     });
                 });
                 ui.add_space(6.0);
-                let search = widgets::search_field(ui, &mut self.search, icons::MAGNIFYING_GLASS, "Search", egui::Id::unique("library-search"), 13.0, 32.0);
+                let search = widgets::search_field(
+                    ui,
+                    &mut self.search,
+                    icons::MAGNIFYING_GLASS,
+                    "Search",
+                    egui::Id::unique("library-search"),
+                    13.0,
+                    32.0,
+                );
                 ui.add_space(8.0);
 
                 let results: Vec<Profile> = self.store.library.search(&self.search).into_iter().cloned().collect();
@@ -912,111 +985,136 @@ impl PeekApp {
                 }
 
                 let footer_h = 40.0;
-                egui::ScrollArea::vertical().auto_shrink([false, false]).max_height((ui.available_height() - footer_h).max(60.0)).show(ui, |ui| {
-                    if results.is_empty() {
-                        ui.add_space(28.0);
-                        ui.vertical_centered(|ui| {
-                            let (icon, line1, line2) = if self.search.is_empty() {
-                                (icons::PLUGS_CONNECTED, "No saved connections", "Connect to a computer and it is saved here.")
-                            } else {
-                                (icons::MAGNIFYING_GLASS, "Nothing matches", "Try a host name, user or group.")
-                            };
-                            ui.label(RichText::new(icon).size(30.0).weak());
-                            ui.add_space(4.0);
-                            ui.label(RichText::new(line1).strong());
-                            ui.label(RichText::new(line2).small().weak());
-                            if self.search.is_empty() {
-                                ui.add_space(10.0);
-                                if widgets::ghost_button(ui, icons::PLUS, "New connection").clicked() {
-                                    cmd = Some(Command::NewConnection);
-                                }
-                            }
-                        });
-                    }
-                    let multi = sections.len() > 1;
-                    for (si, (name, items)) in sections.iter().enumerate() {
-                        let id = ui.make_persistent_id(("section", name));
-                        let mut body = |ui: &mut egui::Ui| {
-                            ui.spacing_mut().item_spacing.y = 2.0;
-                            for p in items {
-                                let host = if p.endpoint.port == p.endpoint.protocol.default_port() {
-                                    p.endpoint.host.clone()
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .max_height((ui.available_height() - footer_h).max(60.0))
+                    .show(ui, |ui| {
+                        if results.is_empty() {
+                            ui.add_space(28.0);
+                            ui.vertical_centered(|ui| {
+                                let (icon, line1, line2) = if self.search.is_empty() {
+                                    (
+                                        icons::PLUGS_CONNECTED,
+                                        "No saved connections",
+                                        "Connect to a computer and it is saved here.",
+                                    )
                                 } else {
-                                    p.endpoint.socket_addr()
+                                    (icons::MAGNIFYING_GLASS, "Nothing matches", "Try a host name, user or group.")
                                 };
-                                let sub = match &p.endpoint.username {
-                                    Some(u) => format!("{u}  ·  {host}"),
-                                    None => host,
-                                };
-                                let row = widgets::connection_row(
-                                    ui,
-                                    widgets::RowContent {
-                                        id: egui::Id::unique(("row", si, p.id)),
-                                        protocol: p.endpoint.protocol,
-                                        title: &p.name,
-                                        subtitle: &sub,
-                                        favorite: p.favorite,
-                                        status: self.profile_status(p.id),
-                                        selected: self.selected == Some(p.id),
-                                    },
-                                );
-                                if row.response.clicked() {
-                                    self.selected = Some(p.id);
+                                ui.label(RichText::new(icon).size(30.0).weak());
+                                ui.add_space(4.0);
+                                ui.label(RichText::new(line1).strong());
+                                ui.label(RichText::new(line2).small().weak());
+                                if self.search.is_empty() {
+                                    ui.add_space(10.0);
+                                    if widgets::ghost_button(ui, icons::PLUS, "New connection").clicked() {
+                                        cmd = Some(Command::NewConnection);
+                                    }
                                 }
-                                if row.response.double_clicked() || row.connect {
-                                    cmd = Some(Command::Connect(p.id));
-                                }
-                                if row.toggle_favorite {
-                                    toggle_fav = Some(p.id);
-                                }
-                                let mut popup = egui::Popup::context_menu(&row.response);
-                                if row.menu {
-                                    popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
-                                }
-                                popup.show(|ui| {
-                                    ui.set_min_width(190.0);
-                                    if ui.button(format!("{}  Connect", icons::PLAY)).clicked() {
+                            });
+                        }
+                        let multi = sections.len() > 1;
+                        for (si, (name, items)) in sections.iter().enumerate() {
+                            let id = ui.make_persistent_id(("section", name));
+                            let mut body = |ui: &mut egui::Ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                for p in items {
+                                    let host = if p.endpoint.port == p.endpoint.protocol.default_port() {
+                                        p.endpoint.host.clone()
+                                    } else {
+                                        p.endpoint.socket_addr()
+                                    };
+                                    let sub = match &p.endpoint.username {
+                                        Some(u) => format!("{u}  ·  {host}"),
+                                        None => host,
+                                    };
+                                    let row = widgets::connection_row(
+                                        ui,
+                                        widgets::RowContent {
+                                            id: egui::Id::unique(("row", si, p.id)),
+                                            protocol: p.endpoint.protocol,
+                                            title: &p.name,
+                                            subtitle: &sub,
+                                            favorite: p.favorite,
+                                            status: self.profile_status(p.id),
+                                            selected: self.selected == Some(p.id),
+                                        },
+                                    );
+                                    if row.response.clicked() {
+                                        self.selected = Some(p.id);
+                                    }
+                                    if row.response.double_clicked() || row.connect {
                                         cmd = Some(Command::Connect(p.id));
                                     }
-                                    if ui.button(format!("{}  Edit…", icons::PENCIL_SIMPLE)).clicked() {
-                                        edit = Some(p.id);
-                                    }
-                                    let fav = if p.favorite { "Remove from favorites" } else { "Add to favorites" };
-                                    if ui.button(format!("{}  {fav}", icons::STAR)).clicked() {
+                                    if row.toggle_favorite {
                                         toggle_fav = Some(p.id);
                                     }
-                                    if let Some(mac) = &p.mac {
-                                        if ui.button(format!("{}  Wake up (Wake-on-LAN)", icons::POWER)).clicked() {
+                                    let mut popup = egui::Popup::context_menu(&row.response);
+                                    if row.menu {
+                                        popup = popup.open_memory(Some(egui::SetOpenCommand::Bool(true)));
+                                    }
+                                    popup.show(|ui| {
+                                        ui.set_min_width(190.0);
+                                        if ui.button(format!("{}  Connect", icons::PLAY)).clicked() {
+                                            cmd = Some(Command::Connect(p.id));
+                                        }
+                                        if ui.button(format!("{}  Edit…", icons::PENCIL_SIMPLE)).clicked() {
+                                            edit = Some(p.id);
+                                        }
+                                        let fav = if p.favorite { "Remove from favorites" } else { "Add to favorites" };
+                                        if ui.button(format!("{}  {fav}", icons::STAR)).clicked() {
+                                            toggle_fav = Some(p.id);
+                                        }
+                                        if let Some(mac) = &p.mac
+                                            && ui.button(format!("{}  Wake up (Wake-on-LAN)", icons::POWER)).clicked()
+                                        {
                                             wake = Some(mac.clone());
                                         }
-                                    }
-                                    ui.separator();
-                                    if ui.button(RichText::new(format!("{}  Delete…", icons::TRASH)).color(theme::DANGER)).clicked() {
-                                        delete = Some(p.id);
-                                    }
-                                });
+                                        ui.separator();
+                                        if ui
+                                            .button(
+                                                RichText::new(format!("{}  Delete…", icons::TRASH))
+                                                    .color(theme::DANGER),
+                                            )
+                                            .clicked()
+                                        {
+                                            delete = Some(p.id);
+                                        }
+                                    });
+                                }
+                            };
+                            if multi {
+                                let mut state = widgets::section_header(ui, id, name, items.len());
+                                state.show_body_unindented(ui, |ui| body(ui));
+                                ui.add_space(6.0);
+                            } else {
+                                body(ui);
                             }
-                        };
-                        if multi {
-                            let mut state = widgets::section_header(ui, id, name, items.len());
-                            state.show_body_unindented(ui, |ui| body(ui));
-                            ui.add_space(6.0);
-                        } else {
-                            body(ui);
                         }
-                    }
-                });
+                    });
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    if widgets::nav_chip(ui, egui::Id::unique("side-settings"), icons::GEAR, "Settings", self.settings_open).on_hover_text("Ctrl+,").clicked() {
+                    if widgets::nav_chip(
+                        ui,
+                        egui::Id::unique("side-settings"),
+                        icons::GEAR,
+                        "Settings",
+                        self.settings_open,
+                    )
+                    .on_hover_text("Ctrl+,")
+                    .clicked()
+                    {
                         cmd = Some(Command::Settings);
                     }
-                    if widgets::nav_chip(ui, egui::Id::unique("side-about"), icons::INFO, "About", self.about_open).clicked() {
+                    if widgets::nav_chip(ui, egui::Id::unique("side-about"), icons::INFO, "About", self.about_open)
+                        .clicked()
+                    {
                         cmd = Some(Command::About);
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(logo::short_commit()).size(10.5).monospace().weak()).on_hover_text(logo::version_line());
+                        ui.label(RichText::new(logo::short_commit()).size(10.5).monospace().weak())
+                            .on_hover_text(logo::version_line());
                     });
                 });
             });
@@ -1098,7 +1196,12 @@ impl PeekApp {
                         None => match Endpoint::parse(&self.quick) {
                             Ok(e) if !self.quick.trim().is_empty() => {
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new(e.protocol.label()).small().strong().color(widgets::protocol_color(e.protocol)));
+                                    ui.label(
+                                        RichText::new(e.protocol.label())
+                                            .small()
+                                            .strong()
+                                            .color(widgets::protocol_color(e.protocol)),
+                                    );
                                     let user = e.username.as_deref().map(|u| format!(" as {u}")).unwrap_or_default();
                                     ui.label(RichText::new(format!("{}:{}{user}", e.host, e.port)).small().weak());
                                 });
@@ -1110,7 +1213,7 @@ impl PeekApp {
                     }
 
                     // Open sessions with live thumbnails.
-                    let live: Vec<(usize, String, Option<(egui::TextureId, Vec2)>, Color32)> = self
+                    let live: Vec<LiveTab> = self
                         .tabs
                         .iter()
                         .enumerate()
@@ -1132,21 +1235,55 @@ impl PeekApp {
                                 let t = ui.ctx().animate_bool_with_time(resp.id.with("hover"), resp.hovered(), 0.12);
                                 let card = rect.translate(Vec2::new(0.0, -2.0 * t));
                                 let p = ui.painter();
-                                let shadow = egui::Shadow { offset: [0, (3.0 + 4.0 * t) as i8], blur: (8.0 + 12.0 * t) as u8, spread: 0, color: Color32::from_black_alpha((50.0 + 50.0 * t) as u8) };
+                                let shadow = egui::Shadow {
+                                    offset: [0, (3.0 + 4.0 * t) as i8],
+                                    blur: (8.0 + 12.0 * t) as u8,
+                                    spread: 0,
+                                    color: Color32::from_black_alpha((50.0 + 50.0 * t) as u8),
+                                };
                                 p.add(shadow.as_shape(card, egui::CornerRadius::same(10)));
                                 p.rect_filled(card, 10.0, theme::canvas(ui.visuals().dark_mode));
-                                let screen = egui::Rect::from_min_max(card.min + Vec2::splat(8.0), card.max - Vec2::new(8.0, 30.0));
+                                let screen = egui::Rect::from_min_max(
+                                    card.min + Vec2::splat(8.0),
+                                    card.max - Vec2::new(8.0, 30.0),
+                                );
                                 if let Some((id, remote)) = tex {
                                     let k = (screen.width() / remote.x).min(screen.height() / remote.y);
                                     let r = egui::Rect::from_center_size(screen.center(), remote * k);
-                                    p.image(id, r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+                                    p.image(
+                                        id,
+                                        r,
+                                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                        Color32::WHITE,
+                                    );
                                 } else {
-                                    p.text(screen.center(), egui::Align2::CENTER_CENTER, icons::MONITOR, egui::FontId::proportional(28.0), Color32::from_gray(80));
+                                    p.text(
+                                        screen.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        icons::MONITOR,
+                                        egui::FontId::proportional(28.0),
+                                        Color32::from_gray(80),
+                                    );
                                 }
                                 p.circle_filled(egui::pos2(card.left() + 16.0, card.bottom() - 15.0), 3.5, color);
-                                let g = widgets::elided(ui, &title, egui::FontId::proportional(13.0), Color32::from_gray(228), card.width() - 40.0);
-                                p.galley(egui::pos2(card.left() + 26.0, card.bottom() - 15.0 - g.size().y / 2.0), g, Color32::from_gray(228));
-                                p.rect_stroke(card, 10.0, egui::Stroke::new(1.5, theme::accent(ui).gamma_multiply(t)), egui::StrokeKind::Inside);
+                                let g = widgets::elided(
+                                    ui,
+                                    &title,
+                                    egui::FontId::proportional(13.0),
+                                    Color32::from_gray(228),
+                                    card.width() - 40.0,
+                                );
+                                p.galley(
+                                    egui::pos2(card.left() + 26.0, card.bottom() - 15.0 - g.size().y / 2.0),
+                                    g,
+                                    Color32::from_gray(228),
+                                );
+                                p.rect_stroke(
+                                    card,
+                                    10.0,
+                                    egui::Stroke::new(1.5, theme::accent(ui).gamma_multiply(t)),
+                                    egui::StrokeKind::Inside,
+                                );
                                 if resp.clicked() {
                                     self.active = Some(i);
                                 }
@@ -1159,14 +1296,25 @@ impl PeekApp {
                         ui.add_space(26.0);
                         widgets::caption(ui, "Recent");
                         ui.add_space(6.0);
-                        let cols = if width > 640.0 { 3 } else if width > 420.0 { 2 } else { 1 };
+                        let cols = if width > 640.0 {
+                            3
+                        } else if width > 420.0 {
+                            2
+                        } else {
+                            1
+                        };
                         let gap = 12.0;
                         let card_w = (width - gap * (cols as f32 - 1.0)) / cols as f32;
                         for chunk in recent.chunks(cols) {
                             ui.horizontal(|ui| {
                                 ui.spacing_mut().item_spacing.x = gap;
                                 for p in chunk {
-                                    let sub = p.endpoint.username.as_deref().map(|u| format!("{u} · {}", p.endpoint.host)).unwrap_or_else(|| p.endpoint.host.clone());
+                                    let sub = p
+                                        .endpoint
+                                        .username
+                                        .as_deref()
+                                        .map(|u| format!("{u} · {}", p.endpoint.host))
+                                        .unwrap_or_else(|| p.endpoint.host.clone());
                                     let meta = p.last_used.map(util::ago).unwrap_or_default();
                                     let card = widgets::connection_card(
                                         ui,
@@ -1219,7 +1367,8 @@ impl PeekApp {
 
     fn editor_window(&mut self, ctx: &egui::Context) {
         let groups: Vec<String> = {
-            let mut g: Vec<String> = self.store.library.profiles.iter().map(|p| p.group.clone()).filter(|g| !g.is_empty()).collect();
+            let mut g: Vec<String> =
+                self.store.library.profiles.iter().map(|p| p.group.clone()).filter(|g| !g.is_empty()).collect();
             g.sort_by_key(|s| s.to_lowercase());
             g.dedup();
             g
@@ -1237,42 +1386,45 @@ impl PeekApp {
             .show(ctx, |ui| {
                 ui.set_width(width);
                 let parsed = Endpoint::parse(&ed.address).ok();
-                if let Some(e) = &parsed {
-                    if ed.address.contains("://") || ed.address.contains(':') {
-                        ed.profile.endpoint.protocol = e.protocol;
-                    }
+                if let Some(e) = &parsed
+                    && (ed.address.contains("://") || ed.address.contains(':'))
+                {
+                    ed.profile.endpoint.protocol = e.protocol;
                 }
                 let protocol = ed.profile.endpoint.protocol;
 
                 // Header: what is being edited.
-                egui::Frame::new().inner_margin(egui::Margin { left: 20, right: 12, top: 16, bottom: 6 }).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let (tile, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
-                        widgets::protocol_tile(ui, tile, protocol, None, ui.visuals().window_fill);
-                        ui.add_space(6.0);
-                        ui.vertical(|ui| {
-                            ui.spacing_mut().item_spacing.y = 1.0;
-                            let title = if !ed.profile.name.trim().is_empty() {
-                                ed.profile.name.clone()
-                            } else if ed.is_new {
-                                "New connection".into()
-                            } else {
-                                parsed.as_ref().map(|e| e.host.clone()).unwrap_or_else(|| "Connection".into())
-                            };
-                            ui.label(RichText::new(title).font(theme::semibold(17.0)).strong());
-                            let sub = match &parsed {
-                                Some(e) => format!("{} · {}:{}", e.protocol.label(), e.host, e.port),
-                                None => "Enter an address to begin".into(),
-                            };
-                            ui.label(RichText::new(sub).weak());
+                egui::Frame::new().inner_margin(egui::Margin { left: 20, right: 12, top: 16, bottom: 6 }).show(
+                    ui,
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            let (tile, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
+                            widgets::protocol_tile(ui, tile, protocol, None, ui.visuals().window_fill);
+                            ui.add_space(6.0);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 1.0;
+                                let title = if !ed.profile.name.trim().is_empty() {
+                                    ed.profile.name.clone()
+                                } else if ed.is_new {
+                                    "New connection".into()
+                                } else {
+                                    parsed.as_ref().map(|e| e.host.clone()).unwrap_or_else(|| "Connection".into())
+                                };
+                                ui.label(RichText::new(title).font(theme::semibold(17.0)).strong());
+                                let sub = match &parsed {
+                                    Some(e) => format!("{} · {}:{}", e.protocol.label(), e.host, e.port),
+                                    None => "Enter an address to begin".into(),
+                                };
+                                ui.label(RichText::new(sub).weak());
+                            });
+                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                if widgets::icon_button(ui, icons::X, "Close (Esc)").clicked() {
+                                    cancel = true;
+                                }
+                            });
                         });
-                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                            if widgets::icon_button(ui, icons::X, "Close (Esc)").clicked() {
-                                cancel = true;
-                            }
-                        });
-                    });
-                });
+                    },
+                );
 
                 // Tabs.
                 let mut tabs = vec![(icons::PLUGS_CONNECTED, "General"), (icons::MONITOR, "Display")];
@@ -1288,109 +1440,177 @@ impl PeekApp {
                 let tab_name = tabs[ed.tab].1;
 
                 // Body at a fixed height, so switching tabs does not resize the dialog.
-                egui::Frame::new().inner_margin(egui::Margin { left: 22, right: 22, top: 12, bottom: 8 }).show(ui, |ui| {
-                    ui.set_min_height(318.0);
-                    let row = |ui: &mut egui::Ui, label: &str| {
-                        ui.allocate_ui_with_layout(Vec2::new(label_w, 28.0), Layout::right_to_left(Align::Center), |ui| {
-            ui.set_min_size(Vec2::new(label_w, 28.0));
-            ui.label(RichText::new(label).color(ui.visuals().weak_text_color()));
-        });
-                    };
-                    egui::Grid::new(("editor-grid", tab_name)).num_columns(2).spacing([10.0, 10.0]).min_col_width(label_w).show(ui, |ui| match tab_name {
-                        "General" => {
-                            row(ui, "Address");
-                            let a = ui.add(egui::TextEdit::singleline(&mut ed.address).hint_text("host, host:port or rdp://…").desired_width(field_w));
-                            if ed.is_new && ed.address.is_empty() && !a.has_focus() && ui.memory(|m| m.focused().is_none()) {
-                                a.request_focus();
-                            }
-                            ui.end_row();
-                            row(ui, "Protocol");
-                            widgets::segmented(ui, &mut ed.profile.endpoint.protocol, &[(Protocol::Rdp, "RDP"), (Protocol::Vnc, "VNC")]);
-                            ui.end_row();
-                            row(ui, "Name");
-                            let hint = parsed.as_ref().map(|e| e.host.clone()).unwrap_or_default();
-                            ui.add(egui::TextEdit::singleline(&mut ed.profile.name).hint_text(hint).desired_width(field_w));
-                            ui.end_row();
-                            row(ui, "User name");
-                            ui.add(egui::TextEdit::singleline(&mut ed.user).hint_text("DOMAIN\\user, user@domain or MicrosoftAccount\\you@outlook.com").desired_width(field_w));
-                            ui.end_row();
-                            row(ui, "Password");
-                            let hint = if ed.has_saved_password { "saved in the keychain (leave empty to keep)" } else { "optional, saved in the keychain" };
-                            ui.add(egui::TextEdit::singleline(&mut ed.password).password(true).hint_text(hint).desired_width(field_w));
-                            ui.end_row();
-                            row(ui, "Group");
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                ui.add(egui::TextEdit::singleline(&mut ed.profile.group).hint_text("e.g. Office, Lab").desired_width(field_w - 32.0));
-                                if !groups.is_empty() {
-                                    let b = widgets::icon_button(ui, icons::CARET_DOWN, "Existing groups");
-                                    egui::Popup::menu(&b).show(|ui| {
-                                        for g in &groups {
-                                            if ui.selectable_label(ed.profile.group == *g, g).clicked() {
-                                                ed.profile.group = g.clone();
-                                            }
+                egui::Frame::new().inner_margin(egui::Margin { left: 22, right: 22, top: 12, bottom: 8 }).show(
+                    ui,
+                    |ui| {
+                        ui.set_min_height(318.0);
+                        let row = |ui: &mut egui::Ui, label: &str| {
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(label_w, 28.0),
+                                Layout::right_to_left(Align::Center),
+                                |ui| {
+                                    ui.set_min_size(Vec2::new(label_w, 28.0));
+                                    ui.label(RichText::new(label).color(ui.visuals().weak_text_color()));
+                                },
+                            );
+                        };
+                        egui::Grid::new(("editor-grid", tab_name))
+                            .num_columns(2)
+                            .spacing([10.0, 10.0])
+                            .min_col_width(label_w)
+                            .show(ui, |ui| match tab_name {
+                                "General" => {
+                                    row(ui, "Address");
+                                    let a = ui.add(
+                                        egui::TextEdit::singleline(&mut ed.address)
+                                            .hint_text("host, host:port or rdp://…")
+                                            .desired_width(field_w),
+                                    );
+                                    if ed.is_new
+                                        && ed.address.is_empty()
+                                        && !a.has_focus()
+                                        && ui.memory(|m| m.focused().is_none())
+                                    {
+                                        a.request_focus();
+                                    }
+                                    ui.end_row();
+                                    row(ui, "Protocol");
+                                    widgets::segmented(
+                                        ui,
+                                        &mut ed.profile.endpoint.protocol,
+                                        &[(Protocol::Rdp, "RDP"), (Protocol::Vnc, "VNC")],
+                                    );
+                                    ui.end_row();
+                                    row(ui, "Name");
+                                    let hint = parsed.as_ref().map(|e| e.host.clone()).unwrap_or_default();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.profile.name)
+                                            .hint_text(hint)
+                                            .desired_width(field_w),
+                                    );
+                                    ui.end_row();
+                                    row(ui, "User name");
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.user)
+                                            .hint_text("DOMAIN\\user, user@domain or MicrosoftAccount\\you@outlook.com")
+                                            .desired_width(field_w),
+                                    );
+                                    ui.end_row();
+                                    row(ui, "Password");
+                                    let hint = if ed.has_saved_password {
+                                        "saved in the keychain (leave empty to keep)"
+                                    } else {
+                                        "optional, saved in the keychain"
+                                    };
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut ed.password)
+                                            .password(true)
+                                            .hint_text(hint)
+                                            .desired_width(field_w),
+                                    );
+                                    ui.end_row();
+                                    row(ui, "Group");
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut ed.profile.group)
+                                                .hint_text("e.g. Office, Lab")
+                                                .desired_width(field_w - 32.0),
+                                        );
+                                        if !groups.is_empty() {
+                                            let b = widgets::icon_button(ui, icons::CARET_DOWN, "Existing groups");
+                                            egui::Popup::menu(&b).show(|ui| {
+                                                for g in &groups {
+                                                    if ui.selectable_label(ed.profile.group == *g, g).clicked() {
+                                                        ed.profile.group = g.clone();
+                                                    }
+                                                }
+                                            });
                                         }
                                     });
+                                    ui.end_row();
+                                }
+                                "Display" => {
+                                    row(ui, "Screen size");
+                                    resolution_picker(
+                                        ui,
+                                        &mut ed.profile.options.resolution,
+                                        &mut ed.custom_size,
+                                        protocol,
+                                    );
+                                    ui.end_row();
+                                    row(ui, "Scaling");
+                                    ui.vertical(|ui| {
+                                        for m in ScaleMode::ALL {
+                                            ui.radio_value(&mut ed.profile.options.scale, m, m.label());
+                                        }
+                                    });
+                                    ui.end_row();
+                                }
+                                "Experience" => {
+                                    experience_editor(ui, &mut ed.profile.options, label_w, field_w);
+                                }
+                                _ => {
+                                    row(ui, "Session");
+                                    ui.vertical(|ui| {
+                                        ui.checkbox(
+                                            &mut ed.profile.options.auto_reconnect,
+                                            "Reconnect if the connection drops",
+                                        );
+                                        ui.checkbox(&mut ed.profile.options.view_only, "View only (send no input)");
+                                        ui.checkbox(
+                                            &mut ed.profile.options.auto_record,
+                                            "Record every session automatically",
+                                        );
+                                    });
+                                    ui.end_row();
+                                    row(ui, "Redirect");
+                                    ui.vertical(|ui| {
+                                        ui.checkbox(&mut ed.profile.options.clipboard, "Clipboard");
+                                        ui.checkbox(&mut ed.profile.options.audio, "Remote audio");
+                                    });
+                                    ui.end_row();
+                                    row(ui, "MAC address");
+                                    let mut mac = ed.profile.mac.clone().unwrap_or_default();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut mac)
+                                            .hint_text("for Wake-on-LAN, e.g. 00:11:22:33:44:55")
+                                            .desired_width(field_w),
+                                    );
+                                    ed.profile.mac = (!mac.trim().is_empty()).then(|| mac.trim().to_string());
+                                    ui.end_row();
+                                    row(ui, "Notes");
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut ed.profile.notes)
+                                            .hint_text("Anything worth remembering")
+                                            .desired_rows(3)
+                                            .desired_width(field_w),
+                                    );
+                                    ui.end_row();
                                 }
                             });
-                            ui.end_row();
-                        }
-                        "Display" => {
-                            row(ui, "Screen size");
-                            resolution_picker(ui, &mut ed.profile.options.resolution, &mut ed.custom_size, protocol);
-                            ui.end_row();
-                            row(ui, "Scaling");
-                            ui.vertical(|ui| {
-                                for m in ScaleMode::ALL {
-                                    ui.radio_value(&mut ed.profile.options.scale, m, m.label());
-                                }
-                            });
-                            ui.end_row();
-                        }
-                        "Experience" => {
-                            experience_editor(ui, &mut ed.profile.options, label_w, field_w);
-                        }
-                        _ => {
-                            row(ui, "Session");
-                            ui.vertical(|ui| {
-                                ui.checkbox(&mut ed.profile.options.auto_reconnect, "Reconnect if the connection drops");
-                                ui.checkbox(&mut ed.profile.options.view_only, "View only (send no input)");
-                                ui.checkbox(&mut ed.profile.options.auto_record, "Record every session automatically");
-                            });
-                            ui.end_row();
-                            row(ui, "Redirect");
-                            ui.vertical(|ui| {
-                                ui.checkbox(&mut ed.profile.options.clipboard, "Clipboard");
-                                ui.checkbox(&mut ed.profile.options.audio, "Remote audio");
-                            });
-                            ui.end_row();
-                            row(ui, "MAC address");
-                            let mut mac = ed.profile.mac.clone().unwrap_or_default();
-                            ui.add(egui::TextEdit::singleline(&mut mac).hint_text("for Wake-on-LAN, e.g. 00:11:22:33:44:55").desired_width(field_w));
-                            ed.profile.mac = (!mac.trim().is_empty()).then(|| mac.trim().to_string());
-                            ui.end_row();
-                            row(ui, "Notes");
-                            ui.add(egui::TextEdit::multiline(&mut ed.profile.notes).hint_text("Anything worth remembering").desired_rows(3).desired_width(field_w));
-                            ui.end_row();
-                        }
-                    });
-                });
+                    },
+                );
 
                 // Footer.
                 ui.add(egui::Separator::default().spacing(0.0));
-                egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 14)).fill(ui.visuals().panel_fill.gamma_multiply(0.5)).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if let Some(e) = &ed.error {
-                            ui.label(RichText::new(format!("{}  {e}", icons::WARNING)).color(theme::DANGER));
-                        }
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
-                            connect = widgets::primary_button(ui, "Save and connect", Vec2::new(150.0, 34.0)).clicked();
-                            save = widgets::secondary_button(ui, "Save", Vec2::new(80.0, 34.0)).clicked();
-                            cancel |= widgets::secondary_button(ui, "Cancel", Vec2::new(80.0, 34.0)).clicked();
+                egui::Frame::new()
+                    .inner_margin(egui::Margin::symmetric(20, 14))
+                    .fill(ui.visuals().panel_fill.gamma_multiply(0.5))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if let Some(e) = &ed.error {
+                                ui.label(RichText::new(format!("{}  {e}", icons::WARNING)).color(theme::DANGER));
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                connect =
+                                    widgets::primary_button(ui, "Save and connect", Vec2::new(150.0, 34.0)).clicked();
+                                save = widgets::secondary_button(ui, "Save", Vec2::new(80.0, 34.0)).clicked();
+                                cancel |= widgets::secondary_button(ui, "Cancel", Vec2::new(80.0, 34.0)).clicked();
+                            });
                         });
                     });
-                });
             });
         let _ = modal;
         // Esc or the buttons close it; a stray click outside must not drop edits.
@@ -1419,11 +1639,11 @@ impl PeekApp {
             if ed.profile.name.trim().is_empty() {
                 ed.profile.name = ed.profile.endpoint.host.clone();
             }
-            if !ed.password.is_empty() {
-                if let Err(err) = Vault::set(&vault_key(&ed.profile.endpoint), &ed.password) {
-                    ed.error = Some(format!("Could not save the password: {err}"));
-                    return;
-                }
+            if !ed.password.is_empty()
+                && let Err(err) = Vault::set(&vault_key(&ed.profile.endpoint), &ed.password)
+            {
+                ed.error = Some(format!("Could not save the password: {err}"));
+                return;
             }
             let profile = ed.profile.clone();
             self.editor = None;
@@ -1461,18 +1681,22 @@ impl PeekApp {
                 });
                 changed |= ui.checkbox(&mut s.show_stats, "Show connection statistics in new sessions").changed();
                 changed |= ui
-                    .checkbox(&mut s.grab_keyboard, "Send system keys (Windows key, Alt+Tab, Print Screen) to the remote computer")
+                    .checkbox(
+                        &mut s.grab_keyboard,
+                        "Send system keys (Windows key, Alt+Tab, Print Screen) to the remote computer",
+                    )
                     .changed();
                 ui.add_space(8.0);
                 ui.label(RichText::new("Recordings").strong());
-                let dir = self.store.settings.recordings_dir.clone().unwrap_or_else(|| self.store.paths.recordings.clone());
+                let dir =
+                    self.store.settings.recordings_dir.clone().unwrap_or_else(|| self.store.paths.recordings.clone());
                 ui.label(RichText::new(dir.display().to_string()).monospace().small());
                 ui.horizontal(|ui| {
-                    if ui.button("Change…").clicked() {
-                        if let Some(d) = rfd::FileDialog::new().set_directory(&dir).pick_folder() {
-                            self.store.settings.recordings_dir = Some(d);
-                            changed = true;
-                        }
+                    if ui.button("Change…").clicked()
+                        && let Some(d) = rfd::FileDialog::new().set_directory(&dir).pick_folder()
+                    {
+                        self.store.settings.recordings_dir = Some(d);
+                        changed = true;
                     }
                     if ui.button("Open folder").clicked() {
                         cmd = Some(Command::OpenRecordingsFolder);
@@ -1483,12 +1707,23 @@ impl PeekApp {
                     if ui.button(format!("{}  About Peek", icons::INFO)).clicked() {
                         cmd = Some(Command::About);
                     }
-                    if let Some(dir) = util::log_dir() {
-                        if ui.button(format!("{}  Log folder", icons::FOLDER_OPEN)).on_hover_text(dir.display().to_string()).clicked() {
-                            open_in_file_manager(&dir);
-                        }
+                    if let Some(dir) = util::log_dir()
+                        && ui
+                            .button(format!("{}  Log folder", icons::FOLDER_OPEN))
+                            .on_hover_text(dir.display().to_string())
+                            .clicked()
+                    {
+                        open_in_file_manager(&dir);
                     }
-                    ui.label(RichText::new(format!("{} · keyboard layout {:08X}", logo::short_commit(), self.keyboard_layout)).small().weak());
+                    ui.label(
+                        RichText::new(format!(
+                            "{} · keyboard layout {:08X}",
+                            logo::short_commit(),
+                            self.keyboard_layout
+                        ))
+                        .small()
+                        .weak(),
+                    );
                 });
             });
         if changed {
@@ -1505,10 +1740,10 @@ impl PeekApp {
     fn palette_commands(&self, query: &str) -> Vec<(String, Command)> {
         let mut v: Vec<(String, Command)> = Vec::new();
         let q = query.trim();
-        if !q.is_empty() {
-            if let Ok(e) = Endpoint::parse(q) {
-                v.push((format!("Connect to {e}"), Command::QuickConnect(q.to_string())));
-            }
+        if !q.is_empty()
+            && let Ok(e) = Endpoint::parse(q)
+        {
+            v.push((format!("Connect to {e}"), Command::QuickConnect(q.to_string())));
         }
         for p in self.store.library.search("") {
             v.push((format!("Connect: {} ({})", p.name, p.endpoint.host), Command::Connect(p.id)));
@@ -1537,7 +1772,9 @@ impl PeekApp {
         }
         v.extend(statics);
         let ql = q.to_lowercase();
-        v.retain(|(label, c)| matches!(c, Command::QuickConnect(_)) || ql.split_whitespace().all(|w| label.to_lowercase().contains(w)));
+        v.retain(|(label, c)| {
+            matches!(c, Command::QuickConnect(_)) || ql.split_whitespace().all(|w| label.to_lowercase().contains(w))
+        });
         v.truncate(12);
         v
     }
@@ -1568,7 +1805,10 @@ impl PeekApp {
             ui.add_space(4.0);
             for (i, (label, cmd)) in items.iter().enumerate() {
                 let sel = i == pal.selected;
-                if ui.add(egui::Button::selectable(sel, label.as_str()).min_size(Vec2::new(ui.available_width(), 26.0))).clicked() {
+                if ui
+                    .add(egui::Button::selectable(sel, label.as_str()).min_size(Vec2::new(ui.available_width(), 26.0)))
+                    .clicked()
+                {
                     run = Some(cmd.clone());
                 }
             }
@@ -1750,15 +1990,17 @@ impl eframe::App for PeekApp {
             self.handle_action(&ctx, id, a);
         }
         for tab in &mut self.tabs {
-            if let Tab::Session(s) = tab {
-                if let Some(creds) = s.take_due_reconnect() {
-                    s.connect(&self.rt, &ctx, creds, self.desired_px, self.keyboard_layout);
-                }
+            if let Tab::Session(s) = tab
+                && let Some(creds) = s.take_due_reconnect()
+            {
+                s.connect(&self.rt, &ctx, creds, self.desired_px, self.keyboard_layout);
             }
         }
 
         // Dropped recordings open in the player.
-        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect()
+        });
         for path in dropped {
             match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
                 Some("peekrec") => self.open_recording(path),
@@ -1780,7 +2022,11 @@ impl eframe::App for PeekApp {
                     && s.is_connected()
                     && !s.options.view_only =>
             {
-                if s.endpoint.protocol == Protocol::Rdp { GrabMode::All } else { GrabMode::System }
+                if s.endpoint.protocol == Protocol::Rdp {
+                    GrabMode::All
+                } else {
+                    GrabMode::System
+                }
             }
             _ => GrabMode::Off,
         };
@@ -1788,12 +2034,12 @@ impl eframe::App for PeekApp {
         let grabbed = self.grab.drain();
 
         // Coming back to Peek: hand the current clipboard to the active session.
-        if window_focused && !self.window_focused {
-            if let Some(clip) = util::read_clipboard() {
-                if let Some(s) = self.active_session_mut() {
-                    s.offer_clipboard(clip);
-                }
-            }
+        if window_focused
+            && !self.window_focused
+            && let Some(clip) = util::read_clipboard()
+            && let Some(s) = self.active_session_mut()
+        {
+            s.offer_clipboard(clip);
         }
         self.window_focused = window_focused;
 

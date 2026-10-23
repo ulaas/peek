@@ -160,7 +160,8 @@ impl RdpClipboard {
                 continue;
             }
             if d.file.is_none() {
-                let created = item.path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| File::create(&item.path));
+                let created =
+                    item.path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| File::create(&item.path));
                 match created {
                     Ok(f) => d.file = Some(f),
                     Err(e) => break Err(e),
@@ -236,9 +237,8 @@ impl CliprdrBackend for RdpClipboard {
         // New remote content replaces whatever was being fetched.
         self.abort_download(None);
         self.requested = None;
-        let files = formats
-            .iter()
-            .find(|f| f.name().is_some_and(|n| n.value() == ClipboardFormatName::FILE_LIST.value()));
+        let files =
+            formats.iter().find(|f| f.name().is_some_and(|n| n.value() == ClipboardFormatName::FILE_LIST.value()));
         if let Some(f) = files.filter(|_| self.files_enabled) {
             // The file list arrives in on_remote_file_list.
             self.push(ClipboardMessage::SendInitiatePaste(f.id()));

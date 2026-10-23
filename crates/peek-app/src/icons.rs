@@ -46,14 +46,12 @@ const FILL: &str = "phosphor-fill";
 /// Add the icon font as a fallback after the text font, so icons can be
 /// mixed into any label. The fill weight gets its own family.
 pub fn install(fonts: &mut egui::FontDefinitions) {
-    fonts.font_data.insert(
-        "phosphor".into(),
-        egui::FontData::from_static(include_bytes!("../assets/Phosphor.ttf")).into(),
-    );
-    fonts.font_data.insert(
-        FILL.into(),
-        egui::FontData::from_static(include_bytes!("../assets/Phosphor-Fill.ttf")).into(),
-    );
+    fonts
+        .font_data
+        .insert("phosphor".into(), egui::FontData::from_static(include_bytes!("../assets/Phosphor.ttf")).into());
+    fonts
+        .font_data
+        .insert(FILL.into(), egui::FontData::from_static(include_bytes!("../assets/Phosphor-Fill.ttf")).into());
     fonts.families.insert(egui::FontFamily::Name(FILL.into()), vec![FILL.into()]);
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         if let Some(keys) = fonts.families.get_mut(&family) {

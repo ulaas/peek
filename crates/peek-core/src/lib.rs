@@ -9,9 +9,9 @@ pub mod session;
 
 pub use endpoint::{Endpoint, ParseError, Protocol};
 pub use experience::{ConnectionSpeed, Experience};
-pub use frame::{Framebuffer, FrameWriter, Rect, SharedFrame, rgb, rgba};
+pub use frame::{FrameWriter, Framebuffer, Rect, SharedFrame, rgb, rgba};
 pub use input::{InputEvent, KeyCode, MouseButton, char_to_keysym};
 pub use session::{
-    AudioChunk, AudioControl, AuthError, ConnectRequest, Credentials, CursorImage, CursorUpdate, EventSink, SessionCommand, SessionContext,
-    SessionEvent, SessionHandle, SessionOptions, SessionStats, new_session,
+    AudioChunk, AudioControl, AuthError, ConnectRequest, Credentials, CursorImage, CursorUpdate, EventSink,
+    SessionCommand, SessionContext, SessionEvent, SessionHandle, SessionOptions, SessionStats, new_session,
 };

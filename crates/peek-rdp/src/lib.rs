@@ -24,7 +24,7 @@ use ironrdp::session::image::DecodedImage;
 use ironrdp::session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput, fast_path};
 use ironrdp_tokio::{FramedWrite as _, single_sequence_step_read, split_tokio_framed};
 use peek_core::{
-    ConnectRequest, Experience, CursorImage, CursorUpdate, InputEvent, KeyCode, MouseButton, Rect, SessionCommand,
+    ConnectRequest, CursorImage, CursorUpdate, Experience, InputEvent, KeyCode, MouseButton, Rect, SessionCommand,
     SessionContext, SessionEvent, SharedFrame,
 };
 use std::sync::Arc;
@@ -149,7 +149,9 @@ async fn connect(
 
     let mut framed = ironrdp_tokio::TokioFramed::new(stream);
     let mut connector = connector::ClientConnector::new(connector_config(req, width, height), client_addr)
-        .with_static_channel(ironrdp::dvc::DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new()))));
+        .with_static_channel(
+            ironrdp::dvc::DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new()))),
+        );
 
     let clip = if req.options.clipboard && !req.options.view_only {
         let (backend, link) = clipboard::new();
@@ -167,7 +169,8 @@ async fn connect(
         // Windows starts sound output only after the client has announced the
         // device redirection channel; announce it, with no devices.
         let name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "peek".into());
-        connector = connector.with_static_channel(ironrdp::rdpdr::Rdpdr::new(Box::new(ironrdp::rdpdr::NoopRdpdrBackend), name));
+        connector =
+            connector.with_static_channel(ironrdp::rdpdr::Rdpdr::new(Box::new(ironrdp::rdpdr::NoopRdpdrBackend), name));
         tracing::info!("audio: requesting rdpsnd (with rdpdr)");
     }
 
@@ -185,12 +188,21 @@ async fn connect(
     let upgraded = ironrdp_tokio::mark_as_upgraded(should_upgrade, &mut connector);
     let erased: Box<dyn AsyncReadWrite + Unpin + Send + Sync> = Box::new(tls);
     let mut framed = ironrdp_tokio::TokioFramed::new_with_leftover(erased, leftover);
-    let public_key = ironrdp_tls::extract_tls_server_public_key(&cert).context("server certificate has no public key")?.to_owned();
+    let public_key =
+        ironrdp_tls::extract_tls_server_public_key(&cert).context("server certificate has no public key")?.to_owned();
 
     ctx.events.status("Signing in");
-    let result = ironrdp_tokio::connect_finalize(upgraded, connector, &mut framed, &mut NoNetwork, host.into(), public_key, None)
-        .await
-        .map_err(rdp_err)?;
+    let result = ironrdp_tokio::connect_finalize(
+        upgraded,
+        connector,
+        &mut framed,
+        &mut NoNetwork,
+        host.into(),
+        public_key,
+        None,
+    )
+    .await
+    .map_err(rdp_err)?;
     Ok((result, framed, clip))
 }
 
@@ -208,7 +220,10 @@ fn rdp_err(e: connector::ConnectorError) -> anyhow::Error {
 
 enum Flow {
     #[allow(dead_code)] // reconnect-on-resize for servers without display control
-    Reconnect { width: u16, height: u16 },
+    Reconnect {
+        width: u16,
+        height: u16,
+    },
     Done(Option<String>),
 }
 
@@ -233,8 +248,13 @@ fn blit(image: &DecodedImage, frame: &SharedFrame, r: &InclusiveRectangle) {
     if w.fb().width() != iw || w.fb().height() != ih {
         w.resize(iw, ih);
     }
-    let rect = Rect::new(r.left as u32, r.top as u32, (r.right as u32 + 1).saturating_sub(r.left as u32), (r.bottom as u32 + 1).saturating_sub(r.top as u32))
-        .clamp_to(iw, ih);
+    let rect = Rect::new(
+        r.left as u32,
+        r.top as u32,
+        (r.right as u32 + 1).saturating_sub(r.left as u32),
+        (r.bottom as u32 + 1).saturating_sub(r.top as u32),
+    )
+    .clamp_to(iw, ih);
     if rect.is_empty() {
         return;
     }
@@ -244,7 +264,7 @@ fn blit(image: &DecodedImage, frame: &SharedFrame, r: &InclusiveRectangle) {
     for y in rect.y..rect.bottom() {
         let start = y as usize * stride + rect.x as usize * 4;
         let src = &data[start..start + rect.w as usize * 4];
-        for (d, s) in fb.row_mut(y, rect.x, rect.w).iter_mut().zip(src.chunks_exact(4)) {
+        for (d, s) in fb.row_mut(y, rect.x, rect.w).iter_mut().zip(src.as_chunks::<4>().0) {
             *d = u32::from_le_bytes([s[0], s[1], s[2], 0xFF]);
         }
     }
@@ -494,7 +514,9 @@ mod tests {
         assert_eq!(lan, PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION);
         let modem = performance_flags(&ConnectionSpeed::Modem.experience());
         assert!(modem.contains(PerformanceFlags::DISABLE_WALLPAPER | PerformanceFlags::DISABLE_THEMING));
-        assert!(!modem.intersects(PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION));
+        assert!(
+            !modem.intersects(PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION)
+        );
 
         let mut req = ConnectRequest {
             endpoint: peek_core::Endpoint::parse("host").unwrap(),

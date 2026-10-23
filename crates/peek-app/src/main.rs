@@ -31,8 +31,9 @@ fn main() -> eframe::Result {
     // Log to stderr and to a file (the release build has no console). The
     // previous run's log is kept as peek.old.log.
     let filter = || {
-        tracing_subscriber::EnvFilter::try_from_env("PEEK_LOG")
-            .unwrap_or_else(|_| "warn,wgpu_hal=error,peek=info,peek_rdp=info,peek_vnc=info,peek_audio=info,peek_record=info".into())
+        tracing_subscriber::EnvFilter::try_from_env("PEEK_LOG").unwrap_or_else(|_| {
+            "warn,wgpu_hal=error,peek=info,peek_rdp=info,peek_vnc=info,peek_audio=info,peek_record=info".into()
+        })
     };
     let log_file = util::log_dir().and_then(|dir| {
         std::fs::create_dir_all(&dir).ok()?;
@@ -44,8 +45,10 @@ fn main() -> eframe::Result {
         use tracing_subscriber::fmt::writer::MakeWriterExt;
         use tracing_subscriber::layer::SubscriberExt;
         use tracing_subscriber::util::SubscriberInitExt;
-        let console = tracing_subscriber::fmt::layer().with_writer(std::io::stderr.with_max_level(tracing::Level::TRACE));
-        let file = log_file.map(|f| tracing_subscriber::fmt::layer().with_ansi(false).with_writer(std::sync::Mutex::new(f)));
+        let console =
+            tracing_subscriber::fmt::layer().with_writer(std::io::stderr.with_max_level(tracing::Level::TRACE));
+        let file =
+            log_file.map(|f| tracing_subscriber::fmt::layer().with_ansi(false).with_writer(std::sync::Mutex::new(f)));
         tracing_subscriber::registry().with(filter()).with(console).with(file).init();
     }
     tracing::info!("{}", logo::version_line());

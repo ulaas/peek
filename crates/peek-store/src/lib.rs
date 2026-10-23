@@ -160,7 +160,17 @@ pub struct ProfileOptions {
 
 impl Default for ProfileOptions {
     fn default() -> Self {
-        Self { scale: ScaleMode::Fit, resolution: Resolution::default(), view_only: false, audio: true, clipboard: true, auto_record: false, auto_reconnect: true, speed: ConnectionSpeed::Lan, experience: Experience::default() }
+        Self {
+            scale: ScaleMode::Fit,
+            resolution: Resolution::default(),
+            view_only: false,
+            audio: true,
+            clipboard: true,
+            auto_record: false,
+            auto_reconnect: true,
+            speed: ConnectionSpeed::Lan,
+            experience: Experience::default(),
+        }
     }
 }
 
@@ -224,7 +234,9 @@ impl Library {
 
     pub fn find_endpoint(&self, e: &Endpoint) -> Option<&Profile> {
         self.profiles.iter().find(|p| {
-            p.endpoint.protocol == e.protocol && p.endpoint.host.eq_ignore_ascii_case(&e.host) && p.endpoint.port == e.port
+            p.endpoint.protocol == e.protocol
+                && p.endpoint.host.eq_ignore_ascii_case(&e.host)
+                && p.endpoint.port == e.port
         })
     }
 
@@ -268,7 +280,7 @@ impl Library {
                     || p.endpoint.username.as_deref().is_some_and(|u| u.to_lowercase().contains(&q))
             })
             .collect();
-        v.sort_by(|a, b| (a.group.to_lowercase(), a.name.to_lowercase()).cmp(&(b.group.to_lowercase(), b.name.to_lowercase())));
+        v.sort_by_key(|a| (a.group.to_lowercase(), a.name.to_lowercase()));
         v
     }
 }
@@ -309,7 +321,9 @@ pub enum Trust {
     New,
     Known,
     /// The server presents a different certificate than last time.
-    Changed { previous: String },
+    Changed {
+        previous: String,
+    },
 }
 
 /// Server certificate fingerprints, trust-on-first-use like SSH known_hosts.
@@ -456,7 +470,7 @@ mod tests {
 /// Accepts the UTF-16LE (with BOM) files mstsc writes as well as UTF-8.
 pub fn import_rdp_file(bytes: &[u8], file_name: &str) -> anyhow::Result<Profile> {
     let text = if bytes.starts_with(&[0xFF, 0xFE]) {
-        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let units: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         String::from_utf16_lossy(&units)
     } else {
         String::from_utf8_lossy(bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes)).into_owned()
@@ -505,7 +519,9 @@ pub fn import_rdp_file(bytes: &[u8], file_name: &str) -> anyhow::Result<Profile>
     read("disable menu anims", "0", &mut e.menu_animations);
     read("disable themes", "0", &mut e.visual_styles);
     read("compression", "1", &mut e.compression);
-    if let Some(bpp) = flag("session bpp").and_then(|v| v.parse::<u8>().ok()).filter(|b| Experience::COLOR_DEPTHS.contains(b)) {
+    if let Some(bpp) =
+        flag("session bpp").and_then(|v| v.parse::<u8>().ok()).filter(|b| Experience::COLOR_DEPTHS.contains(b))
+    {
         e.color_depth = bpp;
         touched = true;
     }
@@ -564,8 +580,12 @@ autoreconnection enabled:i:1
         assert_eq!(p.options.speed, ConnectionSpeed::Custom);
         assert!(p.options.auto_reconnect);
         // Without Experience lines the defaults stay.
-        let plain = import_rdp_file(b"full address:s:pc
-", "pc.rdp").unwrap();
+        let plain = import_rdp_file(
+            b"full address:s:pc
+",
+            "pc.rdp",
+        )
+        .unwrap();
         assert_eq!(plain.options.speed, ConnectionSpeed::Lan);
     }
 
@@ -573,9 +593,12 @@ autoreconnection enabled:i:1
     fn resolution_default_and_legacy_profiles() {
         assert_eq!(ProfileOptions::default().resolution, Resolution::Fixed { width: 1920, height: 1080 });
         // Profiles saved before the setting existed still load, with the default size.
-        let old: ProfileOptions = toml::from_str("scale = \"fit\"
+        let old: ProfileOptions = toml::from_str(
+            "scale = \"fit\"
 resize_remote = true
-").unwrap();
+",
+        )
+        .unwrap();
         assert_eq!(old.resolution, Resolution::default());
         for r in [Resolution::Window, Resolution::fixed(2560, 1440)] {
             let o = ProfileOptions { resolution: r, ..Default::default() };

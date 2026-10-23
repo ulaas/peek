@@ -102,13 +102,13 @@ impl DirtyRegion {
         }
         // Cheap coalescing against the last rect: decoders emit tiles in
         // scan order, so neighbours usually arrive back to back.
-        if let Some(last) = self.rects.last_mut() {
-            if last.touches(&r) {
-                let u = last.union(&r);
-                if u.area() <= last.area() + r.area() + r.area() / 2 {
-                    *last = u;
-                    return;
-                }
+        if let Some(last) = self.rects.last_mut()
+            && last.touches(&r)
+        {
+            let u = last.union(&r);
+            if u.area() <= last.area() + r.area() + r.area() / 2 {
+                *last = u;
+                return;
             }
         }
         self.rects.push(r);

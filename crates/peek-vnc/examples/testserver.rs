@@ -91,7 +91,7 @@ fn serve(mut s: TcpStream, password: Option<String>) -> std::io::Result<()> {
                 let n = u16::from_be_bytes([a, b]) as usize;
                 let mut enc = vec![0u8; n * 4];
                 s.read_exact(&mut enc)?;
-                zrle = enc.chunks_exact(4).any(|c| i32::from_be_bytes([c[0], c[1], c[2], c[3]]) == 16);
+                zrle = enc.as_chunks::<4>().0.iter().any(|c| i32::from_be_bytes([c[0], c[1], c[2], c[3]]) == 16);
                 println!("client encodings: {} (ZRLE: {zrle})", n);
             }
             3 => {
@@ -130,7 +130,10 @@ fn serve(mut s: TcpStream, password: Option<String>) -> std::io::Result<()> {
 fn send_frame(s: &mut TcpStream, t: f32, pointer: (usize, usize), zrle: bool, z: &mut Compress) -> std::io::Result<()> {
     let band_h = 90;
     let band = ((t * 2.0) as usize) % (H / band_h);
-    let rects = [(0, band * band_h, W, band_h), (pointer.0.saturating_sub(20).min(W - 40), pointer.1.saturating_sub(20).min(H - 40), 40, 40)];
+    let rects = [
+        (0, band * band_h, W, band_h),
+        (pointer.0.saturating_sub(20).min(W - 40), pointer.1.saturating_sub(20).min(H - 40), 40, 40),
+    ];
     let mut msg = vec![0u8, 0];
     msg.extend_from_slice(&(rects.len() as u16).to_be_bytes());
     for &(x, y, w, h) in &rects {
@@ -146,7 +149,7 @@ fn send_frame(s: &mut TcpStream, t: f32, pointer: (usize, usize), zrle: bool, z:
             let r = ((px as f32 / W as f32) * 255.0) as u8;
             let g = ((py as f32 / H as f32) * 255.0) as u8;
             let b = (((px + py) as f32 * 0.02 + t * 3.0).sin() * 127.0 + 128.0) as u8;
-            if (px / 80 + py / 80) % 2 == 0 { [r, g, b] } else { [r / 2, g / 2, b / 2] }
+            if (px / 80 + py / 80).is_multiple_of(2) { [r, g, b] } else { [r / 2, g / 2, b / 2] }
         };
         if zrle {
             msg.extend_from_slice(&16i32.to_be_bytes());

@@ -19,7 +19,11 @@ pub fn human_bytes(b: u64) -> String {
 
 pub fn clock(d: Duration) -> String {
     let s = d.as_secs();
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{:02}:{:02}", s / 60, s % 60) }
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{:02}:{:02}", s / 60, s % 60)
+    }
 }
 
 /// Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).

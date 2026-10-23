@@ -17,15 +17,31 @@ pub enum MouseButton {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum InputEvent {
-    Key { code: KeyCode, down: bool },
+    Key {
+        code: KeyCode,
+        down: bool,
+    },
     /// Text produced by the local keyboard layout / IME. Backends that send
     /// physical keys (RDP) normally ignore it; VNC uses it for printable keys.
     Text(String),
     /// Absolute pointer position in remote framebuffer pixels.
-    PointerMove { x: u32, y: u32 },
-    Button { button: MouseButton, down: bool, x: u32, y: u32 },
+    PointerMove {
+        x: u32,
+        y: u32,
+    },
+    Button {
+        button: MouseButton,
+        down: bool,
+        x: u32,
+        y: u32,
+    },
     /// Wheel movement in Windows WHEEL_DELTA units (120 = one notch).
-    Wheel { dx: i32, dy: i32, x: u32, y: u32 },
+    Wheel {
+        dx: i32,
+        dy: i32,
+        x: u32,
+        y: u32,
+    },
     /// Release every key and button the backend believes is held.
     ReleaseAll,
 }
@@ -107,17 +123,27 @@ impl KeyCode {
         (0x20..0x7f).contains(&ks)
             || matches!(
                 self,
-                Numpad0 | Numpad1 | Numpad2 | Numpad3 | Numpad4 | Numpad5 | Numpad6 | Numpad7 | Numpad8
-                    | Numpad9 | NumpadDecimal | NumpadAdd | NumpadSubtract | NumpadMultiply | NumpadDivide
+                Numpad0
+                    | Numpad1
+                    | Numpad2
+                    | Numpad3
+                    | Numpad4
+                    | Numpad5
+                    | Numpad6
+                    | Numpad7
+                    | Numpad8
+                    | Numpad9
+                    | NumpadDecimal
+                    | NumpadAdd
+                    | NumpadSubtract
+                    | NumpadMultiply
+                    | NumpadDivide
             )
     }
 
     pub fn is_modifier(self) -> bool {
         use KeyCode::*;
-        matches!(
-            self,
-            ShiftLeft | ShiftRight | ControlLeft | ControlRight | AltLeft | AltRight | MetaLeft | MetaRight
-        )
+        matches!(self, ShiftLeft | ShiftRight | ControlLeft | ControlRight | AltLeft | AltRight | MetaLeft | MetaRight)
     }
 }
 

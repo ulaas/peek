@@ -7,7 +7,9 @@ use crate::icons;
 use crate::keymap;
 use crate::theme;
 use crate::util::{self, LocalClip};
-use egui::{Align2, Color32, ColorImage, CursorIcon, Event, Pos2, Rect as ERect, Sense, TextureHandle, TextureOptions, Vec2};
+use egui::{
+    Align2, Color32, ColorImage, CursorIcon, Event, Pos2, Rect as ERect, Sense, TextureHandle, TextureOptions, Vec2,
+};
 use peek_core::{
     AuthError, ConnectRequest, Credentials, CursorUpdate, Endpoint, InputEvent, KeyCode, MouseButton, Protocol, Rect,
     SessionCommand, SessionEvent, SessionHandle, SessionOptions, new_session,
@@ -21,10 +23,15 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub enum Phase {
     /// Waiting for the user to enter credentials before (re)connecting.
-    NeedCredentials { message: Option<String> },
+    NeedCredentials {
+        message: Option<String>,
+    },
     Connecting(String),
     Connected,
-    Disconnected { reason: Option<String>, error: bool },
+    Disconnected {
+        reason: Option<String>,
+        error: bool,
+    },
 }
 
 /// Things the view asks the app to do.
@@ -298,7 +305,10 @@ impl SessionView {
                             [one] => one.file_name().map_or("1 item".into(), |n| n.to_string_lossy().into_owned()),
                             many => format!("{} items", many.len()),
                         };
-                        actions.push(ViewAction::Toast(format!("Copied {what} from the remote clipboard"), ToastKind::Success));
+                        actions.push(ViewAction::Toast(
+                            format!("Copied {what} from the remote clipboard"),
+                            ToastKind::Success,
+                        ));
                         self.last_clipboard = Some(LocalClip::Files(paths));
                     }
                 }
@@ -315,16 +325,20 @@ impl SessionView {
                 SessionEvent::Disconnected { reason, error } => {
                     tracing::info!(session = self.id, ?reason, error, "disconnected");
                     self.handle = None;
-                    if let Some(r) = self.recorder.take() {
-                        if let Ok(info) = r.stop() {
-                            actions.push(ViewAction::Toast(
-                                format!("Recording saved ({})", util::human_bytes(info.bytes)),
-                                ToastKind::Success,
-                            ));
-                        }
+                    if let Some(r) = self.recorder.take()
+                        && let Ok(info) = r.stop()
+                    {
+                        actions.push(ViewAction::Toast(
+                            format!("Recording saved ({})", util::human_bytes(info.bytes)),
+                            ToastKind::Success,
+                        ));
                     }
                     // Dropped connections come back on their own; logoffs do not.
-                    if error && self.options.auto_reconnect && self.ever_connected && (self.attempts as usize) < RECONNECT_DELAYS.len() {
+                    if error
+                        && self.options.auto_reconnect
+                        && self.ever_connected
+                        && (self.attempts as usize) < RECONNECT_DELAYS.len()
+                    {
                         let delay = Duration::from_secs(RECONNECT_DELAYS[self.attempts as usize]);
                         self.attempts += 1;
                         self.reconnect = Some((Instant::now() + delay, self.attempts));
@@ -389,7 +403,11 @@ impl SessionView {
                 if let Some(rec) = recorder {
                     rec.region(*r, bytemuck::cast_slice(&px).to_vec());
                 }
-                tex.set_partial([r.x as usize, r.y as usize], ColorImage::new([r.w as usize, r.h as usize], px), TextureOptions::LINEAR);
+                tex.set_partial(
+                    [r.x as usize, r.y as usize],
+                    ColorImage::new([r.w as usize, r.h as usize], px),
+                    TextureOptions::LINEAR,
+                );
             }
         });
     }
@@ -520,13 +538,13 @@ impl SessionView {
         for ev in events {
             match ev {
                 Event::PointerMoved(p) if hovered => {
-                    if let Some(pos) = self.to_remote(img, p, false) {
-                        if self.pointer != Some(pos) {
-                            self.pointer = Some(pos);
-                            self.input(InputEvent::PointerMove { x: pos.0, y: pos.1 });
-                            if let Some(r) = &self.recorder {
-                                r.pointer(pos.0, pos.1);
-                            }
+                    if let Some(pos) = self.to_remote(img, p, false)
+                        && self.pointer != Some(pos)
+                    {
+                        self.pointer = Some(pos);
+                        self.input(InputEvent::PointerMove { x: pos.0, y: pos.1 });
+                        if let Some(r) = &self.recorder {
+                            r.pointer(pos.0, pos.1);
                         }
                     }
                 }
@@ -587,11 +605,11 @@ impl SessionView {
                     self.tap(if m.shift && !m.ctrl { KeyCode::Delete } else { KeyCode::KeyX });
                 }
                 paste @ (Event::Paste(_) | Event::PasteImage(_)) if keyboard_via_egui => {
-                    if let Event::Paste(text) = paste {
-                        if self.options.clipboard {
-                            self.last_clipboard = Some(LocalClip::Text(text.clone()));
-                            self.send(SessionCommand::ClipboardText(text));
-                        }
+                    if let Event::Paste(text) = paste
+                        && self.options.clipboard
+                    {
+                        self.last_clipboard = Some(LocalClip::Text(text.clone()));
+                        self.send(SessionCommand::ClipboardText(text));
                     }
                     let m = ui.input(|i| i.modifiers);
                     self.tap(if m.shift && !m.ctrl { KeyCode::Insert } else { KeyCode::KeyV });
@@ -715,9 +733,17 @@ impl SessionView {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(area.height() * 0.36);
-                        let (icon, color) = if error { (icons::WARNING, theme::DANGER) } else { (icons::POWER, ui.visuals().weak_text_color()) };
+                        let (icon, color) = if error {
+                            (icons::WARNING, theme::DANGER)
+                        } else {
+                            (icons::POWER, ui.visuals().weak_text_color())
+                        };
                         ui.label(egui::RichText::new(icon).size(28.0).color(color));
-                        ui.label(egui::RichText::new(if error { "Connection failed" } else { "Disconnected" }).size(18.0).strong());
+                        ui.label(
+                            egui::RichText::new(if error { "Connection failed" } else { "Disconnected" })
+                                .size(18.0)
+                                .strong(),
+                        );
                         if let Some(r) = reason {
                             ui.add_space(4.0);
                             ui.add(egui::Label::new(egui::RichText::new(r).weak()).wrap());
@@ -725,7 +751,13 @@ impl SessionView {
                         if let Some((at, attempt)) = self.reconnect {
                             let secs = at.saturating_duration_since(Instant::now()).as_secs() + 1;
                             ui.add_space(6.0);
-                            ui.label(egui::RichText::new(format!("Reconnecting in {secs} s (attempt {attempt} of {})", RECONNECT_DELAYS.len())).color(theme::WARN));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Reconnecting in {secs} s (attempt {attempt} of {})",
+                                    RECONNECT_DELAYS.len()
+                                ))
+                                .color(theme::WARN),
+                            );
                             ui.ctx().request_repaint_after(Duration::from_millis(250));
                             if ui.small_button("Stop trying").clicked() {
                                 self.reconnect = None;
@@ -735,7 +767,13 @@ impl SessionView {
                         ui.horizontal(|ui| {
                             let w = 220.0;
                             ui.add_space((ui.available_width() - w) / 2.0);
-                            if ui.add(egui::Button::new(format!("{} Reconnect", icons::ARROW_CLOCKWISE)).min_size(egui::vec2(100.0, 30.0))).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(format!("{} Reconnect", icons::ARROW_CLOCKWISE))
+                                        .min_size(egui::vec2(100.0, 30.0)),
+                                )
+                                .clicked()
+                            {
                                 self.phase = Phase::NeedCredentials { message: None };
                                 actions.push(ViewAction::SubmitCredentials {
                                     user: self.form_user.clone(),
@@ -771,7 +809,7 @@ impl SessionView {
             ui.memory_mut(|m| {
                 m.set_focus_lock_filter(
                     id,
-                    egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() },
+                    egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true },
                 )
             });
         } else if self.focused {
@@ -803,7 +841,12 @@ impl SessionView {
                         ctx.set_cursor_icon(CursorIcon::None);
                         let k = img.width() / self.remote.0.max(1) as f32;
                         let r = ERect::from_min_size(p - c.hot * k, c.size * k);
-                        ui.painter_at(area).image(c.tex.id(), r, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                        ui.painter_at(area).image(
+                            c.tex.id(),
+                            r,
+                            ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
                     }
                 }
             }
@@ -812,7 +855,13 @@ impl SessionView {
         self.overlays(ui, area, hover_pos, actions);
     }
 
-    fn credentials_card(&mut self, ui: &mut egui::Ui, area: ERect, message: Option<String>, actions: &mut Vec<ViewAction>) {
+    fn credentials_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        area: ERect,
+        message: Option<String>,
+        actions: &mut Vec<ViewAction>,
+    ) {
         let card = ERect::from_center_size(area.center(), egui::vec2(340.0, 250.0).min(area.size()));
         ui.scope_builder(egui::UiBuilder::new().max_rect(card), |ui| {
             egui::Frame::window(ui.style()).inner_margin(20.0).show(ui, |ui| {
@@ -827,10 +876,16 @@ impl SessionView {
                 let needs_user = self.endpoint.protocol != Protocol::Vnc;
                 if needs_user {
                     ui.label("User name");
-                    ui.add(egui::TextEdit::singleline(&mut self.form_user).hint_text("DOMAIN\\user, user@domain or MicrosoftAccount\\you@outlook.com").desired_width(f32::INFINITY));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.form_user)
+                            .hint_text("DOMAIN\\user, user@domain or MicrosoftAccount\\you@outlook.com")
+                            .desired_width(f32::INFINITY),
+                    );
                 }
                 ui.label("Password");
-                let pw = ui.add(egui::TextEdit::singleline(&mut self.form_password).password(true).desired_width(f32::INFINITY));
+                let pw = ui.add(
+                    egui::TextEdit::singleline(&mut self.form_password).password(true).desired_width(f32::INFINITY),
+                );
                 if self.form_password.is_empty() && !pw.has_focus() && ui.memory(|m| m.focused().is_none()) {
                     pw.request_focus();
                 }
@@ -838,7 +893,10 @@ impl SessionView {
                 ui.add_space(6.0);
                 let enter = pw.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.horizontal(|ui| {
-                    let connect = ui.add(egui::Button::new(egui::RichText::new("Connect").strong()).fill(theme::accent(ui).gamma_multiply(0.8)));
+                    let connect = ui.add(
+                        egui::Button::new(egui::RichText::new("Connect").strong())
+                            .fill(theme::accent(ui).gamma_multiply(0.8)),
+                    );
                     if connect.clicked() || enter {
                         actions.push(ViewAction::SubmitCredentials {
                             user: self.form_user.clone(),
@@ -865,64 +923,98 @@ impl SessionView {
                 .fixed_pos(Pos2::new(area.center().x, area.top() + 8.0))
                 .pivot(Align2::CENTER_TOP)
                 .show(&ctx, |ui| {
-                    egui::Frame::popup(ui.style()).corner_radius(18).inner_margin(egui::vec2(10.0, 4.0)).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.label(egui::RichText::new(&self.title).strong());
-                            ui.label(egui::RichText::new(&self.detail).weak().small());
-                            ui.separator();
-                            let mut scale = self.options.scale;
-                            egui::ComboBox::from_id_salt(("scale", self.id))
-                                .selected_text(scale.label())
-                                .width(110.0)
-                                .show_ui(ui, |ui| {
-                                    for m in ScaleMode::ALL {
-                                        ui.selectable_value(&mut scale, m, m.label());
-                                    }
-                                });
-                            self.options.scale = scale;
-                            if ui.button(icons::CORNERS_OUT).on_hover_text("Full screen (Ctrl+Alt+Enter)").clicked() {
-                                actions.push(ViewAction::ToggleFullscreen);
-                            }
-                            if ui.button(format!("{} Ctrl+Alt+Del", icons::KEYBOARD)).on_hover_text("Send Ctrl+Alt+Del").clicked() {
-                                self.send(SessionCommand::CtrlAltDel);
-                            }
-                            let rec = self.recorder.is_some();
-                            let rec_btn = egui::Button::new(egui::RichText::new(icons::RECORD).color(if rec { theme::DANGER } else { ui.visuals().text_color() }));
-                            if ui.add(rec_btn).on_hover_text(if rec { "Stop recording" } else { "Record this session" }).clicked() {
-                                actions.push(if rec { ViewAction::StopRecording } else { ViewAction::StartRecording });
-                            }
-                            if self.options.audio && self.endpoint.protocol == Protocol::Rdp {
-                                let icon = if self.muted || self.volume == 0 {
-                                    icons::SPEAKER_X
-                                } else if self.volume < 50 {
-                                    icons::SPEAKER_LOW
+                    egui::Frame::popup(ui.style()).corner_radius(18).inner_margin(egui::vec2(10.0, 4.0)).show(
+                        ui,
+                        |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.label(egui::RichText::new(&self.title).strong());
+                                ui.label(egui::RichText::new(&self.detail).weak().small());
+                                ui.separator();
+                                let mut scale = self.options.scale;
+                                egui::ComboBox::from_id_salt(("scale", self.id))
+                                    .selected_text(scale.label())
+                                    .width(110.0)
+                                    .show_ui(ui, |ui| {
+                                        for m in ScaleMode::ALL {
+                                            ui.selectable_value(&mut scale, m, m.label());
+                                        }
+                                    });
+                                self.options.scale = scale;
+                                if ui.button(icons::CORNERS_OUT).on_hover_text("Full screen (Ctrl+Alt+Enter)").clicked()
+                                {
+                                    actions.push(ViewAction::ToggleFullscreen);
+                                }
+                                if ui
+                                    .button(format!("{} Ctrl+Alt+Del", icons::KEYBOARD))
+                                    .on_hover_text("Send Ctrl+Alt+Del")
+                                    .clicked()
+                                {
+                                    self.send(SessionCommand::CtrlAltDel);
+                                }
+                                let rec = self.recorder.is_some();
+                                let rec_btn = egui::Button::new(egui::RichText::new(icons::RECORD).color(if rec {
+                                    theme::DANGER
                                 } else {
-                                    icons::SPEAKER_HIGH
-                                };
-                                if ui.button(icon).on_hover_text(if self.muted { "Unmute" } else { "Mute" }).clicked() {
-                                    self.toggle_mute();
+                                    ui.visuals().text_color()
+                                }));
+                                if ui
+                                    .add(rec_btn)
+                                    .on_hover_text(if rec { "Stop recording" } else { "Record this session" })
+                                    .clicked()
+                                {
+                                    actions.push(if rec {
+                                        ViewAction::StopRecording
+                                    } else {
+                                        ViewAction::StartRecording
+                                    });
                                 }
-                                let mut v = if self.muted { 0 } else { self.volume };
-                                ui.spacing_mut().slider_width = 80.0;
-                                let s = ui.add(egui::Slider::new(&mut v, 0..=100).show_value(false)).on_hover_text(format!("Volume {v}%"));
-                                if s.changed() {
-                                    self.set_volume(v);
+                                if self.options.audio && self.endpoint.protocol == Protocol::Rdp {
+                                    let icon = if self.muted || self.volume == 0 {
+                                        icons::SPEAKER_X
+                                    } else if self.volume < 50 {
+                                        icons::SPEAKER_LOW
+                                    } else {
+                                        icons::SPEAKER_HIGH
+                                    };
+                                    if ui
+                                        .button(icon)
+                                        .on_hover_text(if self.muted { "Unmute" } else { "Mute" })
+                                        .clicked()
+                                    {
+                                        self.toggle_mute();
+                                    }
+                                    let mut v = if self.muted { 0 } else { self.volume };
+                                    ui.spacing_mut().slider_width = 80.0;
+                                    let s = ui
+                                        .add(egui::Slider::new(&mut v, 0..=100).show_value(false))
+                                        .on_hover_text(format!("Volume {v}%"));
+                                    if s.changed() {
+                                        self.set_volume(v);
+                                    }
                                 }
-                            }
-                            if ui.button(icons::CAMERA).on_hover_text("Copy screenshot to clipboard").clicked() {
-                                self.screenshot(&ctx);
-                                actions.push(ViewAction::Toast("Screenshot copied".into(), ToastKind::Success));
-                            }
-                            ui.toggle_value(&mut self.show_stats, icons::CHART_BAR).on_hover_text("Connection statistics");
-                            ui.toggle_value(&mut self.toolbar_pinned, icons::PUSH_PIN).on_hover_text("Keep this toolbar visible");
-                            ui.separator();
-                            if ui.button(egui::RichText::new(format!("{} Disconnect", icons::SIGN_OUT)).color(theme::DANGER)).clicked() {
-                                self.disconnect();
-                                self.phase = Phase::Disconnected { reason: None, error: false };
-                            }
-                        });
-                    });
+                                if ui.button(icons::CAMERA).on_hover_text("Copy screenshot to clipboard").clicked() {
+                                    self.screenshot(&ctx);
+                                    actions.push(ViewAction::Toast("Screenshot copied".into(), ToastKind::Success));
+                                }
+                                ui.toggle_value(&mut self.show_stats, icons::CHART_BAR)
+                                    .on_hover_text("Connection statistics");
+                                ui.toggle_value(&mut self.toolbar_pinned, icons::PUSH_PIN)
+                                    .on_hover_text("Keep this toolbar visible");
+                                ui.separator();
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!("{} Disconnect", icons::SIGN_OUT))
+                                            .color(theme::DANGER),
+                                    )
+                                    .clicked()
+                                {
+                                    self.disconnect();
+                                    self.phase = Phase::Disconnected { reason: None, error: false };
+                                }
+                            });
+                        },
+                    );
                 });
         }
 
@@ -949,7 +1041,11 @@ impl SessionView {
             );
             let galley = ui.painter().layout_no_wrap(lines, egui::FontId::monospace(11.5), Color32::from_gray(230));
             let pos = Pos2::new(area.right() - galley.size().x - 20.0, area.top() + 12.0);
-            ui.painter().rect_filled(ERect::from_min_size(pos - egui::vec2(8.0, 6.0), galley.size() + egui::vec2(16.0, 12.0)), 6.0, Color32::from_black_alpha(170));
+            ui.painter().rect_filled(
+                ERect::from_min_size(pos - egui::vec2(8.0, 6.0), galley.size() + egui::vec2(16.0, 12.0)),
+                6.0,
+                Color32::from_black_alpha(170),
+            );
             ui.painter().galley(pos, galley, Color32::WHITE);
             ctx.request_repaint_after(Duration::from_millis(500));
         }
@@ -1008,4 +1104,3 @@ impl Drop for SessionView {
         self.disconnect();
     }
 }
-

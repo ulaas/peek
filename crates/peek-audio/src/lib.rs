@@ -51,16 +51,14 @@ impl AudioOut {
         let (tx, rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         // cpal streams are not Send: the stream lives on its own thread.
-        let thread = std::thread::Builder::new().name("peek-audio".into()).spawn(move || {
-            match build_stream() {
-                Ok((stream, shared)) => {
-                    let _ = tx.send(Ok(shared));
-                    let _ = stop_rx.recv();
-                    drop(stream);
-                }
-                Err(e) => {
-                    let _ = tx.send(Err(e));
-                }
+        let thread = std::thread::Builder::new().name("peek-audio".into()).spawn(move || match build_stream() {
+            Ok((stream, shared)) => {
+                let _ = tx.send(Ok(shared));
+                let _ = stop_rx.recv();
+                drop(stream);
+            }
+            Err(e) => {
+                let _ = tx.send(Err(e));
             }
         })?;
         let shared = rx.recv().map_err(|_| anyhow!("audio thread ended"))??;
@@ -159,7 +157,9 @@ fn build_stream() -> anyhow::Result<(cpal::Stream, Arc<Shared>)> {
 }
 
 /// The device callback: drain the queue, silence when it is short.
-fn writer<T: cpal::SizedSample + cpal::FromSample<f32>>(shared: Arc<Shared>) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
+fn writer<T: cpal::SizedSample + cpal::FromSample<f32>>(
+    shared: Arc<Shared>,
+) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
     move |out: &mut [T], _| {
         let gain = f32::from_bits(shared.gain.load(Ordering::Relaxed));
         let cushion = ms_to_frames(CUSHION_MS, shared.rate) * shared.channels as usize;
@@ -212,7 +212,15 @@ impl Resampler {
     }
 
     /// Convert interleaved `input` and append it to `out` (f32, -1.0 ..= 1.0).
-    pub fn process(&mut self, input: &[i16], rate: u32, ch_in: u16, out_rate: u32, ch_out: u16, out: &mut VecDeque<f32>) {
+    pub fn process(
+        &mut self,
+        input: &[i16],
+        rate: u32,
+        ch_in: u16,
+        out_rate: u32,
+        ch_out: u16,
+        out: &mut VecDeque<f32>,
+    ) {
         if self.from != (rate, ch_in) {
             self.reset();
             self.from = (rate, ch_in);

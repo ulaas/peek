@@ -69,8 +69,18 @@ fn tune(style: &mut Style, dark: bool) {
     // Hand over anything clickable; labels are not selectable text (no I-beam
     // over list rows and captions).
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-    v.window_shadow = egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(if dark { 110 } else { 38 }) };
-    v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(if dark { 90 } else { 30 }) };
+    v.window_shadow = egui::Shadow {
+        offset: [0, 8],
+        blur: 28,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 110 } else { 38 }),
+    };
+    v.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 14,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 90 } else { 30 }),
+    };
     v.striped = false;
     // Grid-fitted glyphs; no sub-pixel binning, which trades sharpness for spacing.
     v.text_options.font_hinting = true;
@@ -126,7 +136,8 @@ pub fn semibold(size: f32) -> egui::FontId {
 /// unlike egui's built-in Ubuntu Light. Missing files keep egui's fonts.
 fn install_system_fonts(fonts: &mut egui::FontDefinitions) {
     let dir = std::env::var_os("WINDIR").map(|w| std::path::PathBuf::from(w).join("Fonts"));
-    let load = |names: &[&str]| -> Option<Vec<u8>> { names.iter().find_map(|n| std::fs::read(dir.as_ref()?.join(n)).ok()) };
+    let load =
+        |names: &[&str]| -> Option<Vec<u8>> { names.iter().find_map(|n| std::fs::read(dir.as_ref()?.join(n)).ok()) };
     let mut put = |key: &str, bytes: Vec<u8>, family: egui::FontFamily| {
         fonts.font_data.insert(key.into(), egui::FontData::from_owned(bytes).into());
         fonts.families.entry(family).or_default().insert(0, key.into());

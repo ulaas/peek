@@ -25,7 +25,6 @@ use tokio::sync::mpsc;
 
 pub use handshake::vnc_auth_response;
 
-
 const MAX_DIM: u32 = 16384;
 const NO_SCREEN: u32 = u32::MAX;
 
@@ -408,7 +407,11 @@ impl InputState {
                     MouseButton::Right => 4,
                     MouseButton::X1 | MouseButton::X2 => return,
                 };
-                if down { self.buttons |= bit } else { self.buttons &= !bit }
+                if down {
+                    self.buttons |= bit
+                } else {
+                    self.buttons &= !bit
+                }
                 (self.x, self.y) = (x, y);
                 let _ = tx.send(msg_pointer(self.buttons, x, y));
             }

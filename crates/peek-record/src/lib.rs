@@ -28,11 +28,11 @@ pub mod export;
 
 use anyhow::{Context, bail, ensure};
 use peek_core::{AudioChunk, Framebuffer, Rect};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -88,7 +88,8 @@ impl Recorder {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let mut file = BufWriter::new(File::create(&path).with_context(|| format!("cannot create {}", path.display()))?);
+        let mut file =
+            BufWriter::new(File::create(&path).with_context(|| format!("cannot create {}", path.display()))?);
         let meta: String = metadata
             .iter()
             .map(|(k, v)| format!("{}={}\n", k.replace(['=', '\n'], "_"), v.replace('\n', " ")))
@@ -104,7 +105,14 @@ impl Recorder {
         let thread = std::thread::Builder::new()
             .name("peek-recorder".into())
             .spawn(move || writer_thread(file, rx, shadow, started, thread_path))?;
-        Ok(Self { tx: Some(tx), thread: Some(thread), path, started, audio_stop: Arc::new(AtomicBool::new(false)), audio_thread: None })
+        Ok(Self {
+            tx: Some(tx),
+            thread: Some(thread),
+            path,
+            started,
+            audio_stop: Arc::new(AtomicBool::new(false)),
+            audio_thread: None,
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -181,7 +189,13 @@ impl Drop for Recorder {
 /// and timestamp them. Continuous audio gets back-to-back timestamps;
 /// after a pause (the server sends nothing during silence) the clock
 /// re-syncs to when the sound arrived.
-fn audio_thread(rx: mpsc::Receiver<AudioChunk>, tx: mpsc::Sender<Msg>, mut enc: opus2::Encoder, started: Instant, stop: Arc<AtomicBool>) {
+fn audio_thread(
+    rx: mpsc::Receiver<AudioChunk>,
+    tx: mpsc::Sender<Msg>,
+    mut enc: opus2::Encoder,
+    started: Instant,
+    stop: Arc<AtomicBool>,
+) {
     let mut resampler = peek_audio::Resampler::default();
     let mut pcm: Vec<i16> = Vec::new();
     let mut pcm_start_ms: f64 = 0.0;
@@ -341,11 +355,22 @@ fn writer_thread(
 /// One decoded event from a recording.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    Region { rect: Rect, rgba: Vec<u8> },
-    Resize { w: u32, h: u32 },
-    Pointer { x: u32, y: u32 },
+    Region {
+        rect: Rect,
+        rgba: Vec<u8>,
+    },
+    Resize {
+        w: u32,
+        h: u32,
+    },
+    Pointer {
+        x: u32,
+        y: u32,
+    },
     /// One Opus packet (48 kHz stereo, 20 ms).
-    Audio { packet: Vec<u8> },
+    Audio {
+        packet: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -579,7 +604,8 @@ mod tests {
         let tap = rec.audio_tap().unwrap();
         // 300 ms of a 44.1 kHz tone in 10 ms chunks, like an RDP server sends.
         for i in 0..30 {
-            let samples: Vec<i16> = (0..441 * 2).map(|j| (((i * 441 + j / 2) as f32 * 0.06).sin() * 9000.0) as i16).collect();
+            let samples: Vec<i16> =
+                (0..441 * 2).map(|j| (((i * 441 + j / 2) as f32 * 0.06).sin() * 9000.0) as i16).collect();
             tap.send(AudioChunk { rate: 44_100, channels: 2, samples }).unwrap();
             std::thread::sleep(Duration::from_millis(10));
         }

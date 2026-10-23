@@ -5,7 +5,9 @@
 use crate::icons;
 use crate::theme;
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Pos2, Rect, Response, Sense, Stroke, TextFormat, Ui, Vec2};
+use egui::{
+    Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Pos2, Rect, Response, Sense, Stroke, TextFormat, Ui, Vec2,
+};
 use peek_core::Protocol;
 use std::sync::Arc;
 
@@ -30,7 +32,12 @@ pub fn protocol_icon(p: Protocol) -> &'static str {
 /// Single-line text cut with an ellipsis to fit `max_width`.
 pub fn elided(ui: &Ui, text: &str, font: FontId, color: Color32, max_width: f32) -> Arc<egui::Galley> {
     let mut job = LayoutJob::single_section(text.to_owned(), TextFormat::simple(font, color));
-    job.wrap = TextWrapping { max_width: max_width.max(1.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+    job.wrap = TextWrapping {
+        max_width: max_width.max(1.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
     ui.painter().layout_job(job)
 }
 
@@ -57,7 +64,13 @@ pub fn protocol_tile(ui: &Ui, rect: Rect, protocol: Protocol, status: Option<Col
     let c = protocol_color(protocol);
     let p = ui.painter();
     p.rect_filled(rect, CornerRadius::same(8), c.gamma_multiply(if ui.visuals().dark_mode { 0.16 } else { 0.14 }));
-    p.text(rect.center(), Align2::CENTER_CENTER, protocol_icon(protocol), FontId::proportional(rect.height() * 0.55), c);
+    p.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        protocol_icon(protocol),
+        FontId::proportional(rect.height() * 0.55),
+        c,
+    );
     if let Some(s) = status {
         let at = rect.right_bottom() - Vec2::splat(2.0);
         p.circle_filled(at, 5.5, ring);
@@ -123,7 +136,15 @@ pub fn ghost_button(ui: &mut Ui, icon: &str, text: &str) -> Response {
 
 /// Text field inside a rounded frame with a leading icon and a clear button.
 /// Returns the text edit's response.
-pub fn search_field(ui: &mut Ui, text: &mut String, icon: &str, hint: &str, id: Id, font_size: f32, height: f32) -> Response {
+pub fn search_field(
+    ui: &mut Ui,
+    text: &mut String,
+    icon: &str,
+    hint: &str,
+    id: Id,
+    font_size: f32,
+    height: f32,
+) -> Response {
     let width = ui.available_width();
     let (outer, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     let edit_id = id.with("edit");
@@ -134,10 +155,21 @@ pub fn search_field(ui: &mut Ui, text: &mut String, icon: &str, hint: &str, id: 
     let v = ui.visuals().clone();
     let base = v.widgets.noninteractive.bg_stroke.color;
     let stroke = lerp_color(lerp_color(base, weak_color(ui), t_hover * 0.4), theme::accent(ui), t_focus);
-    ui.painter().rect(outer, CornerRadius::same(8), v.extreme_bg_color, Stroke::new(1.0, stroke), egui::StrokeKind::Inside);
+    ui.painter().rect(
+        outer,
+        CornerRadius::same(8),
+        v.extreme_bg_color,
+        Stroke::new(1.0, stroke),
+        egui::StrokeKind::Inside,
+    );
     if t_focus > 0.0 {
         // Soft focus ring.
-        ui.painter().rect_stroke(outer.expand(2.0), CornerRadius::same(10), Stroke::new(3.0, theme::accent(ui).gamma_multiply(0.18 * t_focus)), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(
+            outer.expand(2.0),
+            CornerRadius::same(10),
+            Stroke::new(3.0, theme::accent(ui).gamma_multiply(0.18 * t_focus)),
+            egui::StrokeKind::Outside,
+        );
     }
     let pad = 10.0;
     let icon_w = font_size + 4.0;
@@ -168,11 +200,20 @@ pub fn search_field(ui: &mut Ui, text: &mut String, icon: &str, hint: &str, id: 
             .desired_width(text_rect.width()),
     );
     if !text.is_empty() {
-        let r = Rect::from_center_size(Pos2::new(outer.right() - 4.0 - clear_w / 2.0, outer.center().y), Vec2::splat(clear_w - 4.0));
+        let r = Rect::from_center_size(
+            Pos2::new(outer.right() - 4.0 - clear_w / 2.0, outer.center().y),
+            Vec2::splat(clear_w - 4.0),
+        );
         let c = ui.interact(r, id.with("clear"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
         let t = hover_t(ui, c.id, c.hovered());
         ui.painter().circle_filled(r.center(), r.width() / 2.0, hover_fill(ui).gamma_multiply(t));
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, icons::X, FontId::proportional(font_size * 0.85), lerp_color(weak_color(ui), text_color(ui), t));
+        ui.painter().text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            icons::X,
+            FontId::proportional(font_size * 0.85),
+            lerp_color(weak_color(ui), text_color(ui), t),
+        );
         if c.clicked() {
             text.clear();
             resp.request_focus();
@@ -204,7 +245,10 @@ pub fn section_header(ui: &mut Ui, id: Id, title: &str, count: usize) -> egui::c
     let lw = label.size().x;
     ui.painter().galley(Pos2::new(lx, rect.center().y - label.size().y / 2.0), label, color);
     let n = ui.painter().layout_no_wrap(count.to_string(), FontId::proportional(11.0), weak_color(ui));
-    let pill = Rect::from_center_size(Pos2::new(lx + lw + 10.0 + n.size().x / 2.0 + 5.0, rect.center().y), n.size() + Vec2::new(10.0, 3.0));
+    let pill = Rect::from_center_size(
+        Pos2::new(lx + lw + 10.0 + n.size().x / 2.0 + 5.0, rect.center().y),
+        n.size() + Vec2::new(10.0, 3.0),
+    );
     ui.painter().rect_filled(pill, CornerRadius::same(8), ui.visuals().faint_bg_color);
     ui.painter().galley(pill.center() - n.size() / 2.0, n, weak_color(ui));
     state
@@ -257,7 +301,13 @@ pub fn connection_row(ui: &mut Ui, c: RowContent<'_>) -> RowOutput {
         protocol_tile(ui, tile, c.protocol, c.status, ring);
 
         // Hover actions take room on the right; the text yields to them.
-        let actions_w = if hovered { 3.0 * 26.0 + 6.0 } else if c.favorite { 24.0 } else { 0.0 };
+        let actions_w = if hovered {
+            3.0 * 26.0 + 6.0
+        } else if c.favorite {
+            24.0
+        } else {
+            0.0
+        };
         let text_x = tile.right() + 10.0;
         let max_w = rect.right() - 8.0 - actions_w - text_x;
         let title_color = if c.status.is_some() || c.selected { v.strong_text_color() } else { v.text_color() };
@@ -270,22 +320,44 @@ pub fn connection_row(ui: &mut Ui, c: RowContent<'_>) -> RowOutput {
     }
 
     let mut out = RowOutput { response: resp.clone(), connect: false, toggle_favorite: false, menu: false };
-    let slot = |i: f32| Rect::from_center_size(Pos2::new(rect.right() - 8.0 - 13.0 - i * 26.0, rect.center().y), Vec2::splat(24.0));
+    let slot = |i: f32| {
+        Rect::from_center_size(Pos2::new(rect.right() - 8.0 - 13.0 - i * 26.0, rect.center().y), Vec2::splat(24.0))
+    };
     if hovered {
-        let play = ui.interact(slot(0.0), c.id.with("go"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Connect");
+        let play = ui
+            .interact(slot(0.0), c.id.with("go"), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("Connect");
         let pt = hover_t(ui, play.id, play.hovered());
         p.circle_filled(play.rect.center(), 12.0, accent.gamma_multiply(0.18 + 0.82 * pt));
-        p.text(play.rect.center() + Vec2::new(1.0, 0.0), Align2::CENTER_CENTER, icons::PLAY, FontId::proportional(12.0), lerp_color(accent, Color32::WHITE, pt));
+        p.text(
+            play.rect.center() + Vec2::new(1.0, 0.0),
+            Align2::CENTER_CENTER,
+            icons::PLAY,
+            FontId::proportional(12.0),
+            lerp_color(accent, Color32::WHITE, pt),
+        );
         out.connect = play.clicked();
 
-        let menu = ui.interact(slot(1.0), c.id.with("menu"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("More");
+        let menu = ui
+            .interact(slot(1.0), c.id.with("menu"), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("More");
         let mt = hover_t(ui, menu.id, menu.hovered());
         p.rect_filled(menu.rect, CornerRadius::same(6), hover_fill(ui).gamma_multiply(mt * 1.5));
-        p.text(menu.rect.center(), Align2::CENTER_CENTER, icons::DOTS_THREE, FontId::proportional(15.0), lerp_color(v.weak_text_color(), v.text_color(), mt));
+        p.text(
+            menu.rect.center(),
+            Align2::CENTER_CENTER,
+            icons::DOTS_THREE,
+            FontId::proportional(15.0),
+            lerp_color(v.weak_text_color(), v.text_color(), mt),
+        );
         out.menu = menu.clicked();
     }
     if hovered || c.favorite {
-        let star = ui.interact(slot(if hovered { 2.0 } else { 0.0 }), c.id.with("fav"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        let star = ui
+            .interact(slot(if hovered { 2.0 } else { 0.0 }), c.id.with("fav"), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
         let star = star.on_hover_text(if c.favorite { "Remove from favorites" } else { "Add to favorites" });
         let st = hover_t(ui, star.id, star.hovered());
         let gold = Color32::from_rgb(245, 190, 70);
@@ -302,7 +374,17 @@ pub fn connection_row(ui: &mut Ui, c: RowContent<'_>) -> RowOutput {
 }
 
 /// Clickable card for the home screen.
-pub fn connection_card(ui: &mut Ui, id: Id, size: Vec2, protocol: Protocol, title: &str, subtitle: &str, meta: &str, status: Option<Color32>) -> Response {
+#[allow(clippy::too_many_arguments)]
+pub fn connection_card(
+    ui: &mut Ui,
+    id: Id,
+    size: Vec2,
+    protocol: Protocol,
+    title: &str,
+    subtitle: &str,
+    meta: &str,
+    status: Option<Color32>,
+) -> Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let t = hover_t(ui, id, resp.hovered());
     let v = ui.visuals().clone();
@@ -335,7 +417,13 @@ pub fn connection_card(ui: &mut Ui, id: Id, size: Vec2, protocol: Protocol, titl
     }
     if t > 0.01 {
         let arrow = Pos2::new(card.right() - 16.0, card.top() + 16.0);
-        ui.painter().text(arrow, Align2::CENTER_CENTER, icons::ARROW_RIGHT, FontId::proportional(13.0), theme::accent(ui).gamma_multiply(t));
+        ui.painter().text(
+            arrow,
+            Align2::CENTER_CENTER,
+            icons::ARROW_RIGHT,
+            FontId::proportional(13.0),
+            theme::accent(ui).gamma_multiply(t),
+        );
     }
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
@@ -346,7 +434,13 @@ pub fn key_cap(ui: &mut Ui, key: &str) {
     let size = g.size() + Vec2::new(10.0, 5.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let v = ui.visuals();
-    ui.painter().rect(rect, CornerRadius::same(4), v.faint_bg_color, Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color), egui::StrokeKind::Inside);
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(4),
+        v.faint_bg_color,
+        Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
+        egui::StrokeKind::Inside,
+    );
     ui.painter().line_segment(
         [rect.left_bottom() + Vec2::new(2.0, -0.5), rect.right_bottom() + Vec2::new(-2.0, -0.5)],
         Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color.gamma_multiply(1.6)),
@@ -368,7 +462,12 @@ pub fn shortcut_hint(ui: &mut Ui, keys: &[&str], label: &str) {
 
 /// Small uppercase section label.
 pub fn caption(ui: &mut Ui, text: &str) {
-    ui.label(egui::RichText::new(text.to_uppercase()).font(crate::theme::semibold(11.5)).color(weak_color(ui)).extra_letter_spacing(0.6));
+    ui.label(
+        egui::RichText::new(text.to_uppercase())
+            .font(crate::theme::semibold(11.5))
+            .color(weak_color(ui))
+            .extra_letter_spacing(0.6),
+    );
 }
 
 /// Soft accent glow behind the home hero: a mesh fading from tinted to clear.
@@ -419,7 +518,10 @@ pub fn tab_chip(ui: &mut Ui, id: Id, title: &str, dot: Color32, selected: bool, 
     let xr = Rect::from_center_size(Pos2::new(rect.right() - 14.0, rect.center().y), Vec2::splat(18.0));
     let mut close = false;
     if hovered || selected {
-        let x = ui.interact(xr, id.with("x"), Sense::click()).on_hover_cursor(CursorIcon::PointingHand).on_hover_text("Close (Ctrl+W)");
+        let x = ui
+            .interact(xr, id.with("x"), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("Close (Ctrl+W)");
         let xt = hover_t(ui, x.id, x.hovered());
         p.rect_filled(xr, CornerRadius::same(5), hover_fill(ui).gamma_multiply(1.6 * xt));
         let c = lerp_color(v.weak_text_color(), v.text_color(), xt).gamma_multiply(0.4 + 0.6 * t.max(sel));
@@ -434,12 +536,17 @@ pub fn tab_chip(ui: &mut Ui, id: Id, title: &str, dot: Color32, selected: bool, 
         let s = s.on_hover_text(if muted { "Unmute this session" } else { "Mute this session" });
         let st = hover_t(ui, s.id, s.hovered());
         p.rect_filled(sr, CornerRadius::same(5), hover_fill(ui).gamma_multiply(1.6 * st));
-        let (icon, c) = if muted { (icons::SPEAKER_X, v.weak_text_color()) } else { (icons::SPEAKER_HIGH, theme::accent(ui)) };
+        let (icon, c) =
+            if muted { (icons::SPEAKER_X, v.weak_text_color()) } else { (icons::SPEAKER_HIGH, theme::accent(ui)) };
         p.text(sr.center(), Align2::CENTER_CENTER, icon, FontId::proportional(12.5), c);
         toggle_audio = s.clicked();
     }
     let resp = resp.on_hover_cursor(CursorIcon::PointingHand);
-    TabOutput { clicked: resp.clicked() && !close && !toggle_audio, close: close || resp.middle_clicked(), toggle_audio }
+    TabOutput {
+        clicked: resp.clicked() && !close && !toggle_audio,
+        close: close || resp.middle_clicked(),
+        toggle_audio,
+    }
 }
 
 /// Icon-and-label navigation chip (Home).
@@ -450,9 +557,16 @@ pub fn nav_chip(ui: &mut Ui, id: Id, icon: &str, label: &str, selected: bool) ->
     let (rect, resp) = ui.allocate_exact_size(g.size() + Vec2::new(22.0, 30.0 - g.size().y), Sense::click());
     let t = hover_t(ui, id, resp.hovered());
     let sel = ui.ctx().animate_bool_with_time(id.with("sel"), selected, HOVER_TIME);
-    ui.painter().rect_filled(rect, CornerRadius::same(7), lerp_color(hover_fill(ui).gamma_multiply(t), v.faint_bg_color, sel));
+    ui.painter().rect_filled(
+        rect,
+        CornerRadius::same(7),
+        lerp_color(hover_fill(ui).gamma_multiply(t), v.faint_bg_color, sel),
+    );
     if sel > 0.0 {
-        let bar = Rect::from_center_size(Pos2::new(rect.center().x, rect.bottom() - 1.0), Vec2::new((rect.width() - 20.0) * sel, 2.0));
+        let bar = Rect::from_center_size(
+            Pos2::new(rect.center().x, rect.bottom() - 1.0),
+            Vec2::new((rect.width() - 20.0) * sel, 2.0),
+        );
         ui.painter().rect_filled(bar, CornerRadius::same(1), theme::accent(ui));
     }
     ui.painter().galley(rect.center() - g.size() / 2.0, g, color);
@@ -475,7 +589,10 @@ pub fn window_button(ui: &mut Ui, kind: WindowButton, size: Vec2) -> Response {
     let v = ui.visuals();
     let (fill, fg) = if kind == WindowButton::Close {
         let red = Color32::from_rgb(196, 43, 28);
-        (red.gamma_multiply(t * if resp.is_pointer_button_down_on() { 0.8 } else { 1.0 }), lerp_color(v.text_color(), Color32::WHITE, t))
+        (
+            red.gamma_multiply(t * if resp.is_pointer_button_down_on() { 0.8 } else { 1.0 }),
+            lerp_color(v.text_color(), Color32::WHITE, t),
+        )
     } else {
         (hover_fill(ui).gamma_multiply(t * if resp.is_pointer_button_down_on() { 2.0 } else { 1.2 }), v.text_color())
     };
@@ -489,13 +606,22 @@ pub fn window_button(ui: &mut Ui, kind: WindowButton, size: Vec2) -> Response {
             p.line_segment([c + Vec2::new(-h, 0.0), c + Vec2::new(h, 0.0)], stroke);
         }
         WindowButton::Maximize => {
-            p.rect_stroke(Rect::from_center_size(c, Vec2::splat(2.0 * h)), CornerRadius::same(1), stroke, egui::StrokeKind::Inside);
+            p.rect_stroke(
+                Rect::from_center_size(c, Vec2::splat(2.0 * h)),
+                CornerRadius::same(1),
+                stroke,
+                egui::StrokeKind::Inside,
+            );
         }
         WindowButton::Restore => {
             let front = Rect::from_center_size(c + Vec2::new(-1.0, 1.0), Vec2::splat(2.0 * h - 2.0));
             p.rect_stroke(front, CornerRadius::same(1), stroke, egui::StrokeKind::Inside);
             p.line(
-                vec![front.left_top() + Vec2::new(2.0, -2.0), front.right_top() + Vec2::new(2.0, -2.0), front.right_bottom() + Vec2::new(2.0, -2.0)],
+                vec![
+                    front.left_top() + Vec2::new(2.0, -2.0),
+                    front.right_top() + Vec2::new(2.0, -2.0),
+                    front.right_bottom() + Vec2::new(2.0, -2.0),
+                ],
                 stroke,
             );
         }
@@ -523,7 +649,11 @@ pub fn tab_strip(ui: &mut Ui, id: Id, selected: &mut usize, tabs: &[(&str, &str)
             let g = ui.painter().layout_no_wrap(format!("{icon}  {label}"), font, color);
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 24.0, 34.0), Sense::click());
             let t = hover_t(ui, resp.id, resp.hovered() && !on);
-            ui.painter().rect_filled(rect.shrink2(Vec2::new(0.0, 3.0)), CornerRadius::same(6), hover_fill(ui).gamma_multiply(t));
+            ui.painter().rect_filled(
+                rect.shrink2(Vec2::new(0.0, 3.0)),
+                CornerRadius::same(6),
+                hover_fill(ui).gamma_multiply(t),
+            );
             let c = if on { color } else { lerp_color(v.weak_text_color(), color, 0.4 + 0.6 * t) };
             ui.painter().galley(rect.center() - g.size() / 2.0, g, c);
             if resp.on_hover_cursor(CursorIcon::PointingHand).clicked() && !on {
@@ -534,7 +664,8 @@ pub fn tab_strip(ui: &mut Ui, id: Id, selected: &mut usize, tabs: &[(&str, &str)
         }
     });
     let bottom = ui.min_rect().bottom().max(start.y + 34.0);
-    let full = Rect::from_min_max(Pos2::new(ui.max_rect().left(), bottom), Pos2::new(ui.max_rect().right(), bottom + 1.0));
+    let full =
+        Rect::from_min_max(Pos2::new(ui.max_rect().left(), bottom), Pos2::new(ui.max_rect().right(), bottom + 1.0));
     ui.painter().rect_filled(full, CornerRadius::ZERO, v.widgets.noninteractive.bg_stroke.color);
     if let Some(span) = spans.get(*selected) {
         let x = ui.ctx().animate_value_with_time(id.with("x"), span.min + 8.0, 0.16);
@@ -550,7 +681,10 @@ pub fn tab_strip(ui: &mut Ui, id: Id, selected: &mut usize, tabs: &[(&str, &str)
 pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> bool {
     let v = ui.visuals().clone();
     let font = FontId::proportional(13.0);
-    let widths: Vec<f32> = options.iter().map(|(_, l)| ui.painter().layout_no_wrap((*l).to_owned(), font.clone(), v.text_color()).size().x + 28.0).collect();
+    let widths: Vec<f32> = options
+        .iter()
+        .map(|(_, l)| ui.painter().layout_no_wrap((*l).to_owned(), font.clone(), v.text_color()).size().x + 28.0)
+        .collect();
     let size = Vec2::new(widths.iter().sum::<f32>() + 4.0, 30.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect_filled(rect, CornerRadius::same(8), v.extreme_bg_color);
@@ -558,7 +692,9 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
     let mut changed = false;
     for ((opt, label), w) in options.iter().zip(widths) {
         let r = Rect::from_min_size(Pos2::new(x, rect.top() + 2.0), Vec2::new(w, size.y - 4.0));
-        let resp = ui.interact(r, ui.scope_id().with(("seg", label)), Sense::click()).on_hover_cursor(CursorIcon::PointingHand);
+        let resp = ui
+            .interact(r, ui.scope_id().with(("seg", label)), Sense::click())
+            .on_hover_cursor(CursorIcon::PointingHand);
         let on = *value == *opt;
         let t = hover_t(ui, resp.id, resp.hovered());
         if on {
@@ -567,7 +703,13 @@ pub fn segmented<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T,
             ui.painter().rect_filled(r, CornerRadius::same(6), hover_fill(ui).gamma_multiply(t));
         }
         let color = if on { v.strong_text_color() } else { v.weak_text_color() };
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, *label, if on { crate::theme::semibold(13.0) } else { font.clone() }, color);
+        ui.painter().text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            *label,
+            if on { crate::theme::semibold(13.0) } else { font.clone() },
+            color,
+        );
         if resp.clicked() && !on {
             *value = *opt;
             changed = true;

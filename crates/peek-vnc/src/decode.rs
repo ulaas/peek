@@ -36,7 +36,7 @@ pub fn px3(b: &[u8]) -> u32 {
 /// Convert wire pixels (4 bytes each) to framebuffer pixels in place.
 pub fn wire_to_pixels(bytes: &[u8], out: &mut Vec<u32>) {
     out.clear();
-    out.extend(bytes.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) | OPAQUE));
+    out.extend(bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c) | OPAQUE));
 }
 
 /// Bounds-checked cursor over a decompressed buffer.
@@ -71,7 +71,13 @@ impl<'a> Bytes<'a> {
 
 /// Inflate exactly `out_len` bytes (or, if `None`, everything available, up
 /// to `max` bytes) from `input` with a persistent zlib stream.
-pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, max: usize, out: &mut Vec<u8>) -> anyhow::Result<()> {
+pub fn inflate(
+    z: &mut Decompress,
+    input: &[u8],
+    out_len: Option<usize>,
+    max: usize,
+    out: &mut Vec<u8>,
+) -> anyhow::Result<()> {
     out.clear();
     let mut consumed = 0usize;
     match out_len {
@@ -93,7 +99,8 @@ pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, max: us
         let output_room_left = out.len() < out.capacity();
         // Done when the stream ends, or all input is used and zlib stopped
         // for lack of input rather than lack of output space.
-        if status == Status::StreamEnd || (consumed >= input.len() && output_room_left) || (stalled && output_room_left) {
+        if status == Status::StreamEnd || (consumed >= input.len() && output_room_left) || (stalled && output_room_left)
+        {
             break;
         }
     }
@@ -194,7 +201,12 @@ fn rle_len(b: &mut Bytes<'_>) -> anyhow::Result<usize> {
 }
 
 /// Hextile reads tile by tile from the stream; there is no length prefix.
-pub async fn hextile<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Result<()> {
+pub async fn hextile<R: AsyncRead + Unpin>(
+    r: &mut Reader<R>,
+    w: u32,
+    h: u32,
+    out: &mut Vec<u32>,
+) -> anyhow::Result<()> {
     const RAW: u8 = 1;
     const BG: u8 = 2;
     const FG: u8 = 4;
@@ -264,7 +276,7 @@ pub async fn rre<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, out: &
     out.resize(w * h, px4(&px));
     let mut buf = Vec::new();
     r.read_into(n.checked_mul(12).context("RRE too large")?, &mut buf).await?;
-    for s in buf.chunks_exact(12) {
+    for s in buf.as_chunks::<12>().0 {
         let color = px4(s);
         let be = |i: usize| u16::from_be_bytes([s[i], s[i + 1]]) as usize;
         let (sx, sy, sw, sh) = (be(4), be(6), be(8), be(10));
@@ -299,11 +311,7 @@ pub struct Tight {
 
 impl Default for Tight {
     fn default() -> Self {
-        Self {
-            zs: std::array::from_fn(|_| Decompress::new(true)),
-            zbuf: Vec::new(),
-            raw: Vec::new(),
-        }
+        Self { zs: std::array::from_fn(|_| Decompress::new(true)), zbuf: Vec::new(), raw: Vec::new() }
     }
 }
 
@@ -349,7 +357,7 @@ impl Tight {
                 ncolors = r.u8().await? as usize + 1;
                 let mut p = vec![0u8; ncolors * 3];
                 r.exact(&mut p).await?;
-                for (i, c) in p.chunks_exact(3).enumerate() {
+                for (i, c) in p.as_chunks::<3>().0.iter().enumerate() {
                     palette[i] = px3(c);
                 }
                 if ncolors == 2 { wu.div_ceil(8) * hu } else { wu * hu }
@@ -368,7 +376,7 @@ impl Tight {
         let data = &self.raw;
         out.reserve(wu * hu);
         match filter {
-            0 => out.extend(data.chunks_exact(3).map(px3)),
+            0 => out.extend(data.as_chunks::<3>().0.iter().map(|c| px3(c))),
             1 if ncolors == 2 => {
                 let stride = wu.div_ceil(8);
                 for y in 0..hu {
@@ -399,7 +407,7 @@ fn gradient(data: &[u8], w: usize, h: usize, out: &mut Vec<u32>) {
                 cur[x * 3 + c] = (pred as u8).wrapping_add(data[(y * w + x) * 3 + c]);
             }
         }
-        out.extend(cur.chunks_exact(3).map(px3));
+        out.extend(cur.as_chunks::<3>().0.iter().map(|c| px3(c)));
         std::mem::swap(&mut prev, &mut cur);
     }
 }
@@ -415,7 +423,7 @@ fn decode_jpeg(data: &[u8], w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Resul
     let info = dec.info().context("JPEG without header")?;
     ensure!(info.width as u32 == w && info.height as u32 == h, "JPEG size mismatch");
     out.clear();
-    out.extend(rgba.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], 0xFF])));
+    out.extend(rgba.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes([c[0], c[1], c[2], 0xFF])));
     Ok(())
 }
 

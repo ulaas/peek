@@ -114,7 +114,8 @@ impl AudioTrack {
         let frame = AAC_FRAME * AUDIO_CHANNELS as usize;
         let mut out = vec![0u8; 8192];
         while self.pcm.len() >= frame {
-            let info = self.encoder.encode(&self.pcm[..frame], &mut out).map_err(|e| anyhow::anyhow!("AAC encoder: {e:?}"))?;
+            let info =
+                self.encoder.encode(&self.pcm[..frame], &mut out).map_err(|e| anyhow::anyhow!("AAC encoder: {e:?}"))?;
             self.pcm.drain(..info.input_consumed.min(frame).max(frame));
             if info.output_size == 0 {
                 continue; // encoder still filling its look-ahead
@@ -149,7 +150,11 @@ impl AudioTrack {
     }
 
     /// Fill to the end of the video, then push the encoder's look-ahead out.
-    fn finish<W: std::io::Write + std::io::Seek>(&mut self, duration_ms: u32, writer: &mut mp4::Mp4Writer<W>) -> anyhow::Result<()> {
+    fn finish<W: std::io::Write + std::io::Seek>(
+        &mut self,
+        duration_ms: u32,
+        writer: &mut mp4::Mp4Writer<W>,
+    ) -> anyhow::Result<()> {
         self.pad_to(duration_ms as u64 * AUDIO_RATE as u64 / 1000);
         let rest = self.pcm.len() % (AAC_FRAME * AUDIO_CHANNELS as usize);
         if rest > 0 {
@@ -170,7 +175,12 @@ impl AudioTrack {
 
 /// Export `input` to `output`. `progress` gets 0.0..=1.0 and returns false
 /// to cancel; a cancelled or failed export removes the partial file.
-pub fn export_mp4(input: &Path, output: &Path, opts: Mp4Options, progress: impl FnMut(f32) -> bool) -> anyhow::Result<Mp4Summary> {
+pub fn export_mp4(
+    input: &Path,
+    output: &Path,
+    opts: Mp4Options,
+    progress: impl FnMut(f32) -> bool,
+) -> anyhow::Result<Mp4Summary> {
     let result = export_inner(input, output, opts, progress);
     if result.is_err() {
         let _ = std::fs::remove_file(output);
@@ -178,7 +188,12 @@ pub fn export_mp4(input: &Path, output: &Path, opts: Mp4Options, progress: impl 
     result
 }
 
-fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: impl FnMut(f32) -> bool) -> anyhow::Result<Mp4Summary> {
+fn export_inner(
+    input: &Path,
+    output: &Path,
+    opts: Mp4Options,
+    mut progress: impl FnMut(f32) -> bool,
+) -> anyhow::Result<Mp4Summary> {
     let mut player = Player::open(input).context("cannot open the recording")?;
     let duration = player.duration_ms.max(1);
     // H.264 4:2:0 needs even dimensions; the first frame decides the size.
@@ -198,7 +213,8 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
         .background_detection(false)
         // A keyframe at least every 10 s of video keeps seeking quick.
         .intra_frame_period(IntraFramePeriod::from_num_frames(fps * 10));
-    let mut encoder = Encoder::with_api_config(OpenH264API::from_source(), config).context("cannot start the H.264 encoder")?;
+    let mut encoder =
+        Encoder::with_api_config(OpenH264API::from_source(), config).context("cannot start the H.264 encoder")?;
 
     let file = BufWriter::new(File::create(output).with_context(|| format!("cannot create {}", output.display()))?);
     let mp4_config = mp4::Mp4Config {
@@ -269,10 +285,8 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
             }
             a.drain(&mut writer)?;
         }
-        if changed {
-            if !progress(t as f32 / duration as f32) {
-                bail!("export cancelled");
-            }
+        if changed && !progress(t as f32 / duration as f32) {
+            bail!("export cancelled");
         }
         if t == duration {
             break;
@@ -301,10 +315,22 @@ fn default_bitrate(w: u32, h: u32) -> u32 {
     ((w as u64 * h as u64 * 30 * 8 / 100) as u32).clamp(1_000_000, 20_000_000)
 }
 
-fn write_sample(w: &mut mp4::Mp4Writer<BufWriter<File>>, start: u32, duration: u32, bytes: Vec<u8>, is_sync: bool) -> anyhow::Result<()> {
+fn write_sample(
+    w: &mut mp4::Mp4Writer<BufWriter<File>>,
+    start: u32,
+    duration: u32,
+    bytes: Vec<u8>,
+    is_sync: bool,
+) -> anyhow::Result<()> {
     w.write_sample(
         VIDEO_TRACK,
-        &mp4::Mp4Sample { start_time: start as u64, duration: duration.max(1), rendering_offset: 0, is_sync, bytes: bytes.into() },
+        &mp4::Mp4Sample {
+            start_time: start as u64,
+            duration: duration.max(1),
+            rendering_offset: 0,
+            is_sync,
+            bytes: bytes.into(),
+        },
     )?;
     Ok(())
 }
@@ -367,9 +393,12 @@ fn draw_arrow(canvas: &mut [u8], w: u32, h: u32, x: i32, y: i32) {
     }
 }
 
+/// One AVCC sample, whether it is a sync sample, and the SPS / PPS if it carried them.
+type AvccSample = (Vec<u8>, bool, Option<Vec<u8>>, Option<Vec<u8>>);
+
 /// Annex B NAL units (start codes) → one AVCC sample (4-byte lengths), with
 /// SPS and PPS split out for the track header.
-fn to_avcc(bits: &openh264::encoder::EncodedBitStream<'_>) -> (Vec<u8>, bool, Option<Vec<u8>>, Option<Vec<u8>>) {
+fn to_avcc(bits: &openh264::encoder::EncodedBitStream<'_>) -> AvccSample {
     let mut sample = Vec::new();
     let (mut sync, mut sps, mut pps) = (false, None, None);
     for l in 0..bits.num_layers() {
@@ -420,7 +449,11 @@ mod tests {
         let tap = r.audio_tap().unwrap();
         for i in 0..60u32 {
             // 1.2 s: 20 ms chunks of a 440 Hz tone at 48 kHz.
-            let samples: Vec<i16> = (0..960 * 2).map(|j| ((((i * 960) + j / 2) as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 12000.0) as i16).collect();
+            let samples: Vec<i16> = (0..960 * 2)
+                .map(|j| {
+                    ((((i * 960) + j / 2) as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 12000.0) as i16
+                })
+                .collect();
             tap.send(peek_core::AudioChunk { rate: 48_000, channels: 2, samples }).unwrap();
             if i % 10 == 0 {
                 r.region(Rect::new(i, 0, 4, 4), vec![0xFF; 64]);
@@ -439,7 +472,11 @@ mod tests {
         assert_eq!(track.media_type().unwrap(), mp4::MediaType::AAC);
         let frames = track.sample_count();
         let audio_ms = frames as u64 * 1024 * 1000 / 48_000;
-        assert!(audio_ms + 50 >= s.duration_ms as u64 && audio_ms <= s.duration_ms as u64 + 120, "audio {audio_ms} ms, video {} ms", s.duration_ms);
+        assert!(
+            audio_ms + 50 >= s.duration_ms as u64 && audio_ms <= s.duration_ms as u64 + 120,
+            "audio {audio_ms} ms, video {} ms",
+            s.duration_ms
+        );
 
         // Decode the middle of the track with FDK's decoder: it must be the tone, not silence.
         let mut dec = fdk_aac::dec::Decoder::new(fdk_aac::dec::Transport::Raw);

@@ -149,7 +149,11 @@ impl Endpoint {
 
     /// `host:port` suitable for a socket connect.
     pub fn socket_addr(&self) -> String {
-        if self.host.contains(':') { format!("[{}]:{}", self.host, self.port) } else { format!("{}:{}", self.host, self.port) }
+        if self.host.contains(':') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
     }
 }
 
