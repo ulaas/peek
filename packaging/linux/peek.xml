@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Lets file managers open .peekrec recordings with Peek. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-peek-recording">
+    <comment>Peek recording</comment>
+    <glob pattern="*.peekrec"/>
+    <icon name="peek"/>
+  </mime-type>
+</mime-info>

@@ -25,7 +25,7 @@ The RDP path has not yet been tested against a live Windows host; VNC is tested 
 
 ## Download
 
-Builds for Windows (x64), Linux (x64) and macOS (Apple silicon, preview) are on the [releases page](https://github.com/ulaas/peek/releases/latest). They are not code-signed yet; the release notes say how to get past the first-launch warning on each system. On Linux, run `./install.sh` from the extracted archive to add Peek to the application menu.
+Installers and portable builds for Windows (x64 `.msi`), Linux (x64 `.deb`, `.rpm`) and macOS (Apple silicon `.dmg`, preview) are on the [releases page](https://github.com/ulaas/peek/releases/latest). They are not code-signed yet; the release notes say how to get past the first-launch warning on each system.
 
 ## Use
 

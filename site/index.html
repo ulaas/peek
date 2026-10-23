@@ -364,24 +364,34 @@ peek session.peekrec</code></pre>
 <section class="download" id="download" aria-labelledby="download-title">
   <div class="wrap">
     <h2 id="download-title" class="reveal">Download</h2>
-    <p class="sub reveal">Version 0.1.0. Each download is a single app with nothing else to install.</p>
+    <p class="sub reveal">Version 0.1.0. Pick the installer for your system, or a portable build that runs without installing.</p>
     <ul class="dl">
       <li class="reveal" data-os="windows">
         <h3>Windows</h3>
-        <p>Windows 10 and 11, x64. Unzip and run <code>peek.exe</code>.</p>
-        <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-windows-x64.zip"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>peek-windows-x64.zip</a>
-        <p class="note">The app isn't code-signed yet, so SmartScreen may warn the first time. Choose More info, then Run anyway.</p>
+        <p>Windows 10 and 11, x64. The installer adds Peek to the Start menu and the command line, and opens recordings.</p>
+        <div class="get">
+          <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-windows-x64.msi"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>Installer (.msi)</a>
+          <a class="alt" href="https://github.com/ulaas/peek/releases/latest/download/peek-windows-x64.zip">Portable .zip</a>
+        </div>
+        <p class="note">Peek isn't code-signed yet, so SmartScreen may warn the first time. Choose More info, then Run anyway.</p>
       </li>
       <li class="reveal" data-os="linux">
         <h3>Linux</h3>
         <p>x64 with glibc 2.39 or newer, such as Ubuntu 24.04, Debian 13 or Fedora 40. X11 and Wayland.</p>
-        <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-linux-x64.tar.gz"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>peek-linux-x64.tar.gz</a>
-        <p class="note">Extract it and run <code>./install.sh</code> to add Peek to your application menu, or start <code>./peek</code> directly.</p>
+        <div class="get">
+          <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-linux-x64.deb"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>Debian, Ubuntu (.deb)</a>
+          <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-linux-x64.rpm"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>Fedora, openSUSE (.rpm)</a>
+          <a class="alt" href="https://github.com/ulaas/peek/releases/latest/download/peek-linux-x64.tar.gz">Portable .tar.gz</a>
+        </div>
+        <p class="note">Open the package with your software center, or install it with <code>apt</code> or <code>dnf</code>. From the portable archive, run <code>./install.sh</code>.</p>
       </li>
       <li class="reveal" data-os="mac">
         <h3>macOS <span class="tag">Preview</span></h3>
-        <p>macOS 11 or newer on Apple silicon. Unzip and move Peek to Applications.</p>
-        <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-macos-arm64.zip"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>peek-macos-arm64.zip</a>
+        <p>macOS 11 or newer on Apple silicon. Open the disk image and drag Peek to Applications.</p>
+        <div class="get">
+          <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-macos-arm64.dmg"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>Disk image (.dmg)</a>
+          <a class="alt" href="https://github.com/ulaas/peek/releases/latest/download/peek-macos-arm64.zip">Portable .zip</a>
+        </div>
         <p class="note">Not yet tested on a Mac, and not notarized. On first launch, open System Settings, then Privacy &amp; Security, and choose Open Anyway.</p>
       </li>
     </ul>

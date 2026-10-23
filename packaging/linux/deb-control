@@ -1,0 +1,15 @@
+Package: peek
+Version: @VERSION@
+Architecture: amd64
+Maintainer: Aydemir Şahin <ulaas@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: libc6 (>= 2.39), libgcc-s1, libasound2t64 | libasound2
+Recommends: libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libx11-6, libxcursor1, libxi6, libxrandr2, libvulkan1 | libgl1
+Section: net
+Priority: optional
+Homepage: https://ulaas.github.io/peek/
+Description: Fast, quiet remote desktop client
+ Peek connects to Windows computers over RDP and to Linux desktops,
+ Raspberry Pis and Macs over VNC. It has tabs, a command palette, a
+ connection library with passwords in the system keychain, two-way
+ clipboard, remote audio and session recording.

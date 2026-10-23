@@ -8,5 +8,5 @@ Icon=peek
 Terminal=false
 Categories=Network;RemoteAccess;
 Keywords=rdp;vnc;remote;desktop;
-MimeType=application/x-rdp;
+MimeType=application/x-rdp;application/x-peek-recording;
 StartupWMClass=peek

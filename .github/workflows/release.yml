@@ -60,11 +60,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config cmake nasm libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev
+            pkg-config cmake nasm libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev rpm
 
-      - name: Install NASM (faster H.264 encoding)
+      - name: Install NASM (faster H.264 encoding) and WiX (MSI installer)
         if: runner.os == 'Windows'
-        run: choco install nasm -y --no-progress && echo "C:/Program Files/NASM" >> "$GITHUB_PATH"
+        run: |
+          choco install nasm -y --no-progress && echo "C:/Program Files/NASM" >> "$GITHUB_PATH"
+          dotnet tool install --global wix --version 5.0.2
+          export PATH="$PATH:$HOME/.dotnet/tools" && cygpath -w "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          wix extension add -g WixToolset.UI.wixext/5.0.2
 
       - name: Test
         run: cargo test --workspace --locked

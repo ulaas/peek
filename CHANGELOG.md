@@ -31,17 +31,18 @@ The first public release.
 
 ### Downloads
 
-| System | File |
-|---|---|
-| Windows 10 and 11 (x64) | `peek-windows-x64.zip` |
-| Linux (x64, glibc 2.39 or newer: Ubuntu 24.04, Debian 13, Fedora 40 and later) | `peek-linux-x64.tar.gz` |
-| macOS 11 or newer (Apple silicon) | `peek-macos-arm64.zip` |
+| System | Installer | Portable |
+|---|---|---|
+| Windows 10 and 11 (x64) | `peek-windows-x64.msi` | `peek-windows-x64.zip` |
+| Debian, Ubuntu (x64) | `peek-linux-x64.deb` | `peek-linux-x64.tar.gz` |
+| Fedora, openSUSE (x64) | `peek-linux-x64.rpm` | `peek-linux-x64.tar.gz` |
+| macOS 11 or newer (Apple silicon) | `peek-macos-arm64.dmg` | `peek-macos-arm64.zip` |
 
-The builds are not code-signed yet:
+Linux builds need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later).
 
-- **Windows:** SmartScreen may warn on first launch. Choose *More info*, then *Run anyway*.
-- **macOS:** the first launch is blocked. Open *System Settings → Privacy & Security* and choose *Open Anyway*, or run `xattr -dr com.apple.quarantine Peek.app`. This is the first macOS build and it has not been tested on a Mac yet; reports are welcome.
-- **Linux:** extract the archive and run `./install.sh` to add Peek to your application menu, or run `./peek` directly.
+- **Windows:** the MSI installs Peek for all users, adds it to the Start menu and the `PATH`, opens `.peekrec` recordings and lists Peek under *Open with* for `.rdp` files. Peek is not code-signed yet, so SmartScreen may warn on first launch: choose *More info*, then *Run anyway*.
+- **Linux:** `sudo apt install ./peek-linux-x64.deb` or `sudo dnf install ./peek-linux-x64.rpm`. From the portable archive, run `./install.sh` to add Peek to your application menu, or run `./peek` directly.
+- **macOS:** open the disk image and drag Peek to Applications. Peek is not notarized, so the first launch is blocked: open *System Settings → Privacy & Security* and choose *Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/Peek.app`. This is the first macOS build and it has not been tested on a Mac yet; reports are welcome.
 
 `SHA256SUMS.txt` lists a checksum for every file.
 
