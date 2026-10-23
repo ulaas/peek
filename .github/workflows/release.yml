@@ -1,6 +1,6 @@
 # Builds Peek for Windows, Linux and macOS.
 #
-# Pushing a tag like v0.1.0 builds, tests and publishes a GitHub release with
+# Pushing a tag like v0.5.0 builds, tests and publishes a GitHub release with
 # the notes from that version's CHANGELOG.md section. Running it by hand
 # (Actions > Release > Run workflow) is a dry run: it builds and uploads the
 # packages as workflow artifacts and publishes nothing.

@@ -2,9 +2,15 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
-## 0.1.0
+## 0.5.0
 
-The first public release.
+Installers for every system.
+
+### New in this release
+
+- Installers: an MSI for Windows, `.deb` and `.rpm` packages for Linux and a disk image for macOS
+- The Windows installer adds Peek to the Start menu and the `PATH`, opens `.peekrec` recordings and lists Peek under *Open with* for `.rdp` files
+- Linux packages add Peek to the application menu and register `.peekrec` files
 
 ### Connect
 
@@ -42,10 +48,14 @@ Linux builds need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and la
 
 - **Windows:** the MSI installs Peek for all users, adds it to the Start menu and the `PATH`, opens `.peekrec` recordings and lists Peek under *Open with* for `.rdp` files. Peek is not code-signed yet, so SmartScreen may warn on first launch: choose *More info*, then *Run anyway*.
 - **Linux:** `sudo apt install ./peek-linux-x64.deb` or `sudo dnf install ./peek-linux-x64.rpm`. From the portable archive, run `./install.sh` to add Peek to your application menu, or run `./peek` directly.
-- **macOS:** open the disk image and drag Peek to Applications. Peek is not notarized, so the first launch is blocked: open *System Settings → Privacy & Security* and choose *Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/Peek.app`. This is the first macOS build and it has not been tested on a Mac yet; reports are welcome.
+- **macOS:** open the disk image and drag Peek to Applications. Peek is not notarized, so the first launch is blocked: open *System Settings → Privacy & Security* and choose *Open Anyway*, or run `xattr -dr com.apple.quarantine /Applications/Peek.app`. The macOS build has not been tested on a Mac yet; reports are welcome.
 
 `SHA256SUMS.txt` lists a checksum for every file.
 
 ### Not yet
 
 SSH, RD Gateway, H.264 for RDP (EGFX), keyboard grab on macOS and Linux.
+
+## 0.1.0
+
+The first public release: portable builds for Windows, Linux and macOS.

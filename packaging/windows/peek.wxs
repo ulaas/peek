@@ -2,7 +2,7 @@
   Peek MSI (WiX Toolset v5). Built by scripts/package.sh in the release workflow:
 
     wix build packaging/windows/peek.wxs -arch x64 -ext WixToolset.UI.wixext
-      -d Version=0.1.0 -d BinDir=<folder with peek.exe> -o peek-windows-x64.msi
+      -d Version=0.5.0 -d BinDir=<folder with peek.exe> -o peek-windows-x64.msi
 
   Installs for all users into Program Files, adds a Start menu shortcut, puts
   peek on the PATH, opens .peekrec recordings and offers Peek under "Open with"
