@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Peek
+GenericName=Remote Desktop
+Comment=Fast, quiet RDP and VNC client
+Exec=peek %f
+Icon=peek
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=rdp;vnc;remote;desktop;
+MimeType=application/x-rdp;
+StartupWMClass=peek

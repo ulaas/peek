@@ -57,7 +57,7 @@
   <nav aria-label="Page">
     <a href="#tour">Tour</a>
     <a href="#inside">Inside</a>
-    <a href="#build">Build</a>
+    <a href="#download">Download</a>
     <a class="gh" href="https://github.com/ulaas/peek"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg><span>GitHub</span></a>
   </nav>
 </header>
@@ -88,10 +88,10 @@
     <h1 id="hero-title">Remote desktop, quietly.</h1>
     <p class="lede">Peek is a fast RDP and VNC client written in Rust. Its interface stays dim and out of the way, so the computer you connect to is the brightest thing on your screen.</p>
     <div class="ctas">
-      <a class="btn primary" href="https://github.com/ulaas/peek"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>Get the source</a>
-      <a class="btn" href="#build">Build it yourself</a>
+      <a class="btn primary" href="#download"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>Download Peek</a>
+      <a class="btn" href="https://github.com/ulaas/peek"><svg class="ico" aria-hidden="true"><use href="#i-github"/></svg>Get the source</a>
     </div>
-    <p class="fine">Free and open source under MIT or Apache-2.0. Runs on Windows and Linux.</p>
+    <p class="fine">Free and open source under MIT or Apache-2.0. For Windows, Linux and macOS.</p>
   </div>
 
   <figure class="hero-shot">
@@ -325,7 +325,7 @@ test hextile_bounds ... <span class="g">ok</span>
 
     <div class="status reveal">
       <h3>Not there yet</h3>
-      <p>SSH, Remote Desktop Gateway and H.264 for RDP (EGFX) are still to come. Follow along or help out <a href="https://github.com/ulaas/peek">on GitHub</a>.</p>
+      <p>SSH, Remote Desktop Gateway, H.264 for RDP (EGFX) and keyboard grab on macOS and Linux are still to come. Follow along or help out <a href="https://github.com/ulaas/peek">on GitHub</a>.</p>
     </div>
   </div>
 </section>
@@ -360,11 +360,40 @@ peek session.peekrec</code></pre>
   </div>
 </section>
 
+<!-- ============================== Download ============================== -->
+<section class="download" id="download" aria-labelledby="download-title">
+  <div class="wrap">
+    <h2 id="download-title" class="reveal">Download</h2>
+    <p class="sub reveal">Version 0.1.0. Each download is a single app with nothing else to install.</p>
+    <ul class="dl">
+      <li class="reveal" data-os="windows">
+        <h3>Windows</h3>
+        <p>Windows 10 and 11, x64. Unzip and run <code>peek.exe</code>.</p>
+        <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-windows-x64.zip"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>peek-windows-x64.zip</a>
+        <p class="note">The app isn't code-signed yet, so SmartScreen may warn the first time. Choose More info, then Run anyway.</p>
+      </li>
+      <li class="reveal" data-os="linux">
+        <h3>Linux</h3>
+        <p>x64 with glibc 2.39 or newer, such as Ubuntu 24.04, Debian 13 or Fedora 40. X11 and Wayland.</p>
+        <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-linux-x64.tar.gz"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>peek-linux-x64.tar.gz</a>
+        <p class="note">Extract it and run <code>./install.sh</code> to add Peek to your application menu, or start <code>./peek</code> directly.</p>
+      </li>
+      <li class="reveal" data-os="mac">
+        <h3>macOS <span class="tag">Preview</span></h3>
+        <p>macOS 11 or newer on Apple silicon. Unzip and move Peek to Applications.</p>
+        <a class="btn" href="https://github.com/ulaas/peek/releases/latest/download/peek-macos-arm64.zip"><svg class="ico" aria-hidden="true"><use href="#i-down"/></svg>peek-macos-arm64.zip</a>
+        <p class="note">Not yet tested on a Mac, and not notarized. On first launch, open System Settings, then Privacy &amp; Security, and choose Open Anyway.</p>
+      </li>
+    </ul>
+    <p class="dl-more reveal"><a href="https://github.com/ulaas/peek/releases">All releases and checksums</a> <span aria-hidden="true">/</span> <a href="https://github.com/ulaas/peek/blob/main/CHANGELOG.md">What's new</a></p>
+  </div>
+</section>
+
 <!-- ============================== Build ============================== -->
 <section class="build" id="build" aria-labelledby="build-title">
   <div class="wrap">
-    <h2 id="build-title" class="reveal">Build it yourself</h2>
-    <p class="sub reveal">You need Rust 1.90 or newer. Peek is a Cargo workspace of small crates; the default member is the app.</p>
+    <h2 id="build-title" class="reveal">Or build it yourself</h2>
+    <p class="sub reveal">You need Rust 1.90 or newer and CMake. On Linux, also the ALSA headers (<code>libasound2-dev</code>). Peek is a Cargo workspace of small crates; the default member is the app.</p>
     <ol class="steps">
       <li class="reveal"><h3>Get the code</h3><pre><code>git clone https://github.com/ulaas/peek
 cd peek</code></pre></li>

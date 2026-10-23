@@ -394,8 +394,23 @@ h1 {
 .term-card pre { font-variant-ligatures: none; margin: 0; padding: 22px 24px; font-family: var(--f-mono); font-size: .95rem; line-height: 1.7; overflow-x: auto; }
 .term-card .c { color: #7d8898; }
 
+/* ---------------------------------------------------------------- Download */
+.download { padding: clamp(80px, 11vw, 150px) 0 0; }
+.dl { list-style: none; padding: 0; margin: 48px 0 0; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.dl li { border: 1px solid var(--line); border-radius: 14px; padding: 24px; background: var(--panel); display: grid; grid-row: span 4; grid-template-rows: subgrid; gap: 14px; align-content: start; }
+.dl li.mine { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 24px 60px -30px var(--glow); }
+.dl h3 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dl p { margin: 0; color: var(--muted); }
+.dl .btn { justify-self: start; align-self: start; font-size: .95rem; }
+.dl li.mine .btn { background: var(--btn); border-color: var(--btn); color: #fff; }
+.dl .note { font-size: .875rem; }
+.tag, .mine-tag { font-size: .75rem; font-weight: 500; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); letter-spacing: 0; }
+.mine-tag { border-color: var(--accent); color: var(--accent); }
+.dl-more { margin-top: 24px; color: var(--muted); }
+
 /* ---------------------------------------------------------------- Build */
 .build { padding: clamp(80px, 11vw, 150px) 0; }
+.download + .build { padding-top: clamp(72px, 9vw, 120px); }
 .steps { list-style: none; counter-reset: s; padding: 0; margin: 48px 0 0; display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
 .steps li { counter-increment: s; border: 1px solid var(--line); border-radius: 14px; padding: 22px 22px 18px; background: var(--panel); display: flex; flex-direction: column; }
 .steps h3 { font-size: 1.125rem; margin-bottom: 14px; display: flex; gap: 10px; align-items: baseline; }

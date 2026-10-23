@@ -3,3 +3,4 @@
 *.pdb
 .vscode/
 .idea/
+/dist

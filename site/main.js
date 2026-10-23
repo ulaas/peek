@@ -71,6 +71,18 @@
     setTimeout(tick, 600);
   }
 
+  // Point out the download for this computer.
+  const ua = (navigator.userAgentData?.platform || navigator.platform || navigator.userAgent).toLowerCase();
+  const os = /win/.test(ua) ? 'windows' : /mac/.test(ua) ? 'mac' : /linux|x11/.test(ua) && !/android/.test(ua) ? 'linux' : null;
+  const mine = os && document.querySelector(`.dl [data-os="${os}"]`);
+  if (mine) {
+    mine.classList.add('mine');
+    const tag = document.createElement('span');
+    tag.className = 'mine-tag';
+    tag.textContent = 'This computer';
+    mine.querySelector('h3').append(tag);
+  }
+
   // Headings and blocks rise in once as they enter the viewport.
   const reveals = document.querySelectorAll('.reveal');
   const rio = new IntersectionObserver(entries => {
