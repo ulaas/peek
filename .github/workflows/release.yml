@@ -125,5 +125,12 @@ jobs:
         run: |
           flags=()
           case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "Peek ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag "${flags[@]}"
+          # A re-pushed tag reuses its release: refresh notes and replace assets.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Peek ${GITHUB_REF_NAME#v}" --notes-file notes.md "${flags[@]}"
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "Peek ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag "${flags[@]}"
+          fi
