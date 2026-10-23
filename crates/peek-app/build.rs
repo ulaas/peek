@@ -10,16 +10,29 @@ use std::process::Command;
 mod mark;
 
 fn git(args: &[&str]) -> Option<String> {
-    let out = Command::new("git").args(args).env("GIT_OPTIONAL_LOCKS", "0").output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let out = Command::new("git")
+        .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 fn main() {
     let sha = git(&["rev-parse", "--short=9", "HEAD"]).unwrap_or_else(|| "unknown".into());
-    let dirty = git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
-    println!("cargo:rustc-env=PEEK_GIT_SHA={sha}{}", if dirty { "-dirty" } else { "" });
+    let dirty =
+        git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
+    println!(
+        "cargo:rustc-env=PEEK_GIT_SHA={sha}{}",
+        if dirty { "-dirty" } else { "" }
+    );
     println!("cargo:rustc-env=PEEK_BUILD_DATE={}", today());
-    println!("cargo:rustc-env=PEEK_PROFILE={}", std::env::var("PROFILE").unwrap_or_default());
+    println!(
+        "cargo:rustc-env=PEEK_PROFILE={}",
+        std::env::var("PROFILE").unwrap_or_default()
+    );
 
     // Re-stamp when HEAD moves or the index changes (commit, checkout, add).
     if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
@@ -53,7 +66,11 @@ fn icon_res() -> Vec<u8> {
     fn entry(out: &mut Vec<u8>, kind: u16, id: u16, flags: u16, data: &[u8]) {
         out.extend((data.len() as u32).to_le_bytes());
         out.extend(32u32.to_le_bytes()); // header size
-        out.extend([0xFFFF, kind, 0xFFFF, id].iter().flat_map(|v: &u16| v.to_le_bytes()));
+        out.extend(
+            [0xFFFF, kind, 0xFFFF, id]
+                .iter()
+                .flat_map(|v: &u16| v.to_le_bytes()),
+        );
         out.extend(0u32.to_le_bytes()); // data version
         out.extend(flags.to_le_bytes());
         out.extend(0u16.to_le_bytes()); // language neutral
@@ -65,7 +82,11 @@ fn icon_res() -> Vec<u8> {
     let mut out = Vec::new();
     entry(&mut out, 0, 0, 0, &[]); // a .res file starts with an empty entry
     let mut group = Vec::new();
-    group.extend([0u16, 1, SIZES.len() as u16].iter().flat_map(|v| v.to_le_bytes()));
+    group.extend(
+        [0u16, 1, SIZES.len() as u16]
+            .iter()
+            .flat_map(|v| v.to_le_bytes()),
+    );
     for (i, &size) in SIZES.iter().enumerate() {
         let rgba = mark::rgba(size);
         let mask_row = (size.div_ceil(32) * 4) as usize;
@@ -79,7 +100,10 @@ fn icon_res() -> Vec<u8> {
         dib.extend([0u8; 24]);
         // Rows bottom-up, BGRA.
         for y in (0..size as usize).rev() {
-            for px in rgba[y * size as usize * 4..(y + 1) * size as usize * 4].as_chunks::<4>().0 {
+            for px in rgba[y * size as usize * 4..(y + 1) * size as usize * 4]
+                .as_chunks::<4>()
+                .0
+            {
                 dib.extend([px[2], px[1], px[0], px[3]]);
             }
         }
@@ -99,7 +123,10 @@ fn icon_res() -> Vec<u8> {
 
 /// UTC date as YYYY-MM-DD without pulling in a date crate.
 fn today() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let days = (secs / 86_400) as i64;
     // Civil-from-days (Howard Hinnant).
     let z = days + 719_468;

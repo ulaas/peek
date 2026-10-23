@@ -17,13 +17,21 @@ pub fn short_commit() -> String {
         Some(s) => (s, true),
         None => (COMMIT, false),
     };
-    format!("{}{}", &sha[..sha.len().min(7)], if dirty { "*" } else { "" })
+    format!(
+        "{}{}",
+        &sha[..sha.len().min(7)],
+        if dirty { "*" } else { "" }
+    )
 }
 
 pub use crate::mark::rgba;
 
 pub fn icon_data() -> egui::IconData {
-    egui::IconData { rgba: rgba(64), width: 64, height: 64 }
+    egui::IconData {
+        rgba: rgba(64),
+        width: 64,
+        height: 64,
+    }
 }
 
 /// Texture of the mark for drawing in the UI.
@@ -40,7 +48,11 @@ mod tests {
         let px = super::rgba(64);
         assert_eq!(px[3], 0, "corner is transparent");
         let mid = ((32 * 64 + 20) * 4) as usize; // left part of the eye, away from the pupil
-        assert!(px[mid] > 230 && px[mid + 3] == 255, "eye white at {:?}", &px[mid..mid + 4]);
+        assert!(
+            px[mid] > 230 && px[mid + 3] == 255,
+            "eye white at {:?}",
+            &px[mid..mid + 4]
+        );
         assert!(super::short_commit().len() <= 8);
     }
 }

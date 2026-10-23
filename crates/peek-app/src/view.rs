@@ -7,10 +7,14 @@ use crate::icons;
 use crate::keymap;
 use crate::theme;
 use crate::util::{self, LocalClip};
-use egui::{Align2, Color32, ColorImage, CursorIcon, Event, Pos2, Rect as ERect, Sense, TextureHandle, TextureOptions, Vec2};
+use egui::{
+    Align2, Color32, ColorImage, CursorIcon, Event, Pos2, Rect as ERect, Sense, TextureHandle,
+    TextureOptions, Vec2,
+};
 use peek_core::{
-    AuthError, ConnectRequest, Credentials, CursorUpdate, Endpoint, InputEvent, KeyCode, MouseButton, Protocol, Rect,
-    SessionCommand, SessionEvent, SessionHandle, SessionOptions, new_session,
+    AuthError, ConnectRequest, Credentials, CursorUpdate, Endpoint, InputEvent, KeyCode,
+    MouseButton, Protocol, Rect, SessionCommand, SessionEvent, SessionHandle, SessionOptions,
+    new_session,
 };
 use peek_record::Recorder;
 use peek_store::{ProfileOptions, Resolution, ScaleMode};
@@ -21,16 +25,25 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub enum Phase {
     /// Waiting for the user to enter credentials before (re)connecting.
-    NeedCredentials { message: Option<String> },
+    NeedCredentials {
+        message: Option<String>,
+    },
     Connecting(String),
     Connected,
-    Disconnected { reason: Option<String>, error: bool },
+    Disconnected {
+        reason: Option<String>,
+        error: bool,
+    },
 }
 
 /// Things the view asks the app to do.
 pub enum ViewAction {
     ToggleFullscreen,
-    SubmitCredentials { user: String, password: String, remember: bool },
+    SubmitCredentials {
+        user: String,
+        password: String,
+        remember: bool,
+    },
     Close,
     Toast(String, ToastKind),
     StartRecording,
@@ -116,7 +129,13 @@ enum CursorMode {
 }
 
 impl SessionView {
-    pub fn new(id: u64, endpoint: Endpoint, title: String, options: ProfileOptions, vault_key: String) -> Self {
+    pub fn new(
+        id: u64,
+        endpoint: Endpoint,
+        title: String,
+        options: ProfileOptions,
+        vault_key: String,
+    ) -> Self {
         Self {
             id,
             profile_id: None,
@@ -207,24 +226,34 @@ impl SessionView {
         };
         let events = sctx.events.clone();
         let finish = move |result: anyhow::Result<Option<String>>| match result {
-            Ok(reason) => events.send(SessionEvent::Disconnected { reason, error: false }),
+            Ok(reason) => events.send(SessionEvent::Disconnected {
+                reason,
+                error: false,
+            }),
             Err(e) => match e.downcast_ref::<AuthError>() {
-                Some(a) => events.send(SessionEvent::AuthRequired { message: a.to_string() }),
-                None => events.send(SessionEvent::Disconnected { reason: Some(format!("{e:#}")), error: true }),
+                Some(a) => events.send(SessionEvent::AuthRequired {
+                    message: a.to_string(),
+                }),
+                None => events.send(SessionEvent::Disconnected {
+                    reason: Some(format!("{e:#}")),
+                    error: true,
+                }),
             },
         };
         match req.endpoint.protocol {
             // IronRDP futures are not Send, and RemoteFX decoding is heavy:
             // give every RDP session its own thread and runtime.
             Protocol::Rdp => {
-                let spawned = std::thread::Builder::new().name(format!("peek-rdp-{}", self.id)).spawn(move || {
-                    let result = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(anyhow::Error::from)
-                        .and_then(|rt| rt.block_on(peek_rdp::run(req, sctx)));
-                    finish(result);
-                });
+                let spawned = std::thread::Builder::new()
+                    .name(format!("peek-rdp-{}", self.id))
+                    .spawn(move || {
+                        let result = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(anyhow::Error::from)
+                            .and_then(|rt| rt.block_on(peek_rdp::run(req, sctx)));
+                        finish(result);
+                    });
                 if let Err(e) = spawned {
                     tracing::error!("cannot start RDP thread: {e}");
                 }
@@ -266,7 +295,11 @@ impl SessionView {
         for ev in events {
             match ev {
                 SessionEvent::Status(s) => self.phase = Phase::Connecting(s),
-                SessionEvent::Connected { width, height, detail } => {
+                SessionEvent::Connected {
+                    width,
+                    height,
+                    detail,
+                } => {
                     self.remote = (width, height);
                     self.detail = detail;
                     tracing::info!(session = self.id, "connected");
@@ -287,7 +320,9 @@ impl SessionView {
                 }
                 SessionEvent::Cursor(c) => self.set_cursor(ctx, c),
                 SessionEvent::ClipboardText(t) => {
-                    if self.options.clipboard && !matches!(&self.last_clipboard, Some(LocalClip::Text(l)) if *l == t) {
+                    if self.options.clipboard
+                        && !matches!(&self.last_clipboard, Some(LocalClip::Text(l)) if *l == t)
+                    {
                         ctx.copy_text(t.clone());
                         self.last_clipboard = Some(LocalClip::Text(t));
                     }
@@ -295,14 +330,21 @@ impl SessionView {
                 SessionEvent::ClipboardFiles(paths) => {
                     if self.options.clipboard && util::write_clipboard_files(&paths) {
                         let what = match paths.as_slice() {
-                            [one] => one.file_name().map_or("1 item".into(), |n| n.to_string_lossy().into_owned()),
+                            [one] => one
+                                .file_name()
+                                .map_or("1 item".into(), |n| n.to_string_lossy().into_owned()),
                             many => format!("{} items", many.len()),
                         };
-                        actions.push(ViewAction::Toast(format!("Copied {what} from the remote clipboard"), ToastKind::Success));
+                        actions.push(ViewAction::Toast(
+                            format!("Copied {what} from the remote clipboard"),
+                            ToastKind::Success,
+                        ));
                         self.last_clipboard = Some(LocalClip::Files(paths));
                     }
                 }
-                SessionEvent::Notice(text) => actions.push(ViewAction::Toast(text, ToastKind::Info)),
+                SessionEvent::Notice(text) => {
+                    actions.push(ViewAction::Toast(text, ToastKind::Info))
+                }
                 SessionEvent::Bell => {}
                 SessionEvent::ServerIdentity { fingerprint } => {
                     self.fingerprint = Some(fingerprint.clone());
@@ -310,21 +352,27 @@ impl SessionView {
                 }
                 SessionEvent::AuthRequired { message } => {
                     self.handle = None;
-                    self.phase = Phase::NeedCredentials { message: Some(message) };
+                    self.phase = Phase::NeedCredentials {
+                        message: Some(message),
+                    };
                 }
                 SessionEvent::Disconnected { reason, error } => {
                     tracing::info!(session = self.id, ?reason, error, "disconnected");
                     self.handle = None;
-                    if let Some(r) = self.recorder.take() {
-                        if let Ok(info) = r.stop() {
-                            actions.push(ViewAction::Toast(
-                                format!("Recording saved ({})", util::human_bytes(info.bytes)),
-                                ToastKind::Success,
-                            ));
-                        }
+                    if let Some(r) = self.recorder.take()
+                        && let Ok(info) = r.stop()
+                    {
+                        actions.push(ViewAction::Toast(
+                            format!("Recording saved ({})", util::human_bytes(info.bytes)),
+                            ToastKind::Success,
+                        ));
                     }
                     // Dropped connections come back on their own; logoffs do not.
-                    if error && self.options.auto_reconnect && self.ever_connected && (self.attempts as usize) < RECONNECT_DELAYS.len() {
+                    if error
+                        && self.options.auto_reconnect
+                        && self.ever_connected
+                        && (self.attempts as usize) < RECONNECT_DELAYS.len()
+                    {
                         let delay = Duration::from_secs(RECONNECT_DELAYS[self.attempts as usize]);
                         self.attempts += 1;
                         self.reconnect = Some((Instant::now() + delay, self.attempts));
@@ -346,7 +394,8 @@ impl SessionView {
                     return;
                 }
                 let image = ColorImage::from_rgba_unmultiplied(size, &img.rgba);
-                let tex = ctx.load_texture(format!("cursor-{}", self.id), image, TextureOptions::LINEAR);
+                let tex =
+                    ctx.load_texture(format!("cursor-{}", self.id), image, TextureOptions::LINEAR);
                 self.cursor = Some(RemoteCursor {
                     tex,
                     size: Vec2::new(img.width as f32, img.height as f32),
@@ -361,7 +410,10 @@ impl SessionView {
     fn upload(&mut self, ctx: &egui::Context) {
         let Some(h) = &self.handle else { return };
         let (fw, fh) = h.frame.size();
-        let size_ok = self.texture.as_ref().is_some_and(|t| t.size() == [fw as usize, fh as usize]);
+        let size_ok = self
+            .texture
+            .as_ref()
+            .is_some_and(|t| t.size() == [fw as usize, fh as usize]);
         if !size_ok {
             h.frame.invalidate();
         }
@@ -369,14 +421,20 @@ impl SessionView {
         let recorder = &self.recorder;
         let id = self.id;
         h.frame.read_dirty(|fb, rects| {
-            let full = texture.as_ref().is_none_or(|t| t.size() != [fb.width() as usize, fb.height() as usize]);
+            let full = texture
+                .as_ref()
+                .is_none_or(|t| t.size() != [fb.width() as usize, fb.height() as usize]);
             if full {
                 let px: &[Color32] = bytemuck::cast_slice(fb.pixels());
                 let img = ColorImage::new([fb.width() as usize, fb.height() as usize], px.to_vec());
-                *texture = Some(ctx.load_texture(format!("remote-{id}"), img, TextureOptions::LINEAR));
+                *texture =
+                    Some(ctx.load_texture(format!("remote-{id}"), img, TextureOptions::LINEAR));
                 if let Some(r) = recorder {
                     r.resize(fb.width(), fb.height());
-                    r.region(Rect::new(0, 0, fb.width(), fb.height()), fb.as_bytes().to_vec());
+                    r.region(
+                        Rect::new(0, 0, fb.width(), fb.height()),
+                        fb.as_bytes().to_vec(),
+                    );
                 }
                 return;
             }
@@ -389,7 +447,11 @@ impl SessionView {
                 if let Some(rec) = recorder {
                     rec.region(*r, bytemuck::cast_slice(&px).to_vec());
                 }
-                tex.set_partial([r.x as usize, r.y as usize], ColorImage::new([r.w as usize, r.h as usize], px), TextureOptions::LINEAR);
+                tex.set_partial(
+                    [r.x as usize, r.y as usize],
+                    ColorImage::new([r.w as usize, r.h as usize], px),
+                    TextureOptions::LINEAR,
+                );
             }
         });
     }
@@ -406,9 +468,18 @@ impl SessionView {
             Some(t) if now.duration_since(t) >= Duration::from_millis(500) => {
                 let dt = now.duration_since(t).as_secs_f64();
                 let blend = |old: f64, new: f64| old * 0.4 + new * 0.6;
-                self.rates.down = blend(self.rates.down, cur.0.saturating_sub(self.rates.prev.0) as f64 / dt);
-                self.rates.up = blend(self.rates.up, cur.1.saturating_sub(self.rates.prev.1) as f64 / dt);
-                self.rates.ups = blend(self.rates.ups, cur.2.saturating_sub(self.rates.prev.2) as f64 / dt);
+                self.rates.down = blend(
+                    self.rates.down,
+                    cur.0.saturating_sub(self.rates.prev.0) as f64 / dt,
+                );
+                self.rates.up = blend(
+                    self.rates.up,
+                    cur.1.saturating_sub(self.rates.prev.1) as f64 / dt,
+                );
+                self.rates.ups = blend(
+                    self.rates.ups,
+                    cur.2.saturating_sub(self.rates.prev.2) as f64 / dt,
+                );
                 self.rates.at = Some(now);
                 self.rates.prev = cur;
             }
@@ -434,7 +505,9 @@ impl SessionView {
         // Larger than the window in 1:1 mode: pan with the pointer.
         for axis in 0..2 {
             if size[axis] > area.size()[axis] {
-                let t = pointer.map_or(0.5, |p| ((p[axis] - area.min[axis]) / area.size()[axis]).clamp(0.0, 1.0));
+                let t = pointer.map_or(0.5, |p| {
+                    ((p[axis] - area.min[axis]) / area.size()[axis]).clamp(0.0, 1.0)
+                });
                 min[axis] = area.min[axis] - (size[axis] - area.size()[axis]) * t;
             }
         }
@@ -520,17 +593,22 @@ impl SessionView {
         for ev in events {
             match ev {
                 Event::PointerMoved(p) if hovered => {
-                    if let Some(pos) = self.to_remote(img, p, false) {
-                        if self.pointer != Some(pos) {
-                            self.pointer = Some(pos);
-                            self.input(InputEvent::PointerMove { x: pos.0, y: pos.1 });
-                            if let Some(r) = &self.recorder {
-                                r.pointer(pos.0, pos.1);
-                            }
+                    if let Some(pos) = self.to_remote(img, p, false)
+                        && self.pointer != Some(pos)
+                    {
+                        self.pointer = Some(pos);
+                        self.input(InputEvent::PointerMove { x: pos.0, y: pos.1 });
+                        if let Some(r) = &self.recorder {
+                            r.pointer(pos.0, pos.1);
                         }
                     }
                 }
-                Event::PointerButton { pos, button, pressed, modifiers } if hovered || !pressed => {
+                Event::PointerButton {
+                    pos,
+                    button,
+                    pressed,
+                    modifiers,
+                } if hovered || !pressed => {
                     if keyboard_via_egui {
                         self.sync_modifiers(modifiers);
                     }
@@ -542,7 +620,12 @@ impl SessionView {
                         egui::PointerButton::Extra2 => MouseButton::X2,
                     };
                     if let Some((x, y)) = self.to_remote(img, pos, true) {
-                        self.input(InputEvent::Button { button: b, down: pressed, x, y });
+                        self.input(InputEvent::Button {
+                            button: b,
+                            down: pressed,
+                            x,
+                            y,
+                        });
                     }
                 }
                 Event::MouseWheel { unit, delta, .. } if hovered => {
@@ -557,7 +640,11 @@ impl SessionView {
                         if v.abs() < wheel_threshold {
                             return 0;
                         }
-                        let n = if rdp { *v as i32 } else { (*v / 120.0) as i32 * 120 };
+                        let n = if rdp {
+                            *v as i32
+                        } else {
+                            (*v / 120.0) as i32 * 120
+                        };
                         *v -= n as f32;
                         n
                     };
@@ -567,14 +654,23 @@ impl SessionView {
                         self.input(InputEvent::Wheel { dx, dy, x, y });
                     }
                 }
-                Event::Key { key, physical_key, pressed, modifiers, .. } if keyboard_via_egui => {
+                Event::Key {
+                    key,
+                    physical_key,
+                    pressed,
+                    modifiers,
+                    ..
+                } if keyboard_via_egui => {
                     if pressed && modifiers.ctrl && modifiers.alt && key == egui::Key::Enter {
                         actions.push(ViewAction::ToggleFullscreen);
                         continue;
                     }
                     self.sync_modifiers(modifiers);
                     if let Some(code) = keymap::map(physical_key.unwrap_or(key)) {
-                        self.input(InputEvent::Key { code, down: pressed });
+                        self.input(InputEvent::Key {
+                            code,
+                            down: pressed,
+                        });
                     }
                 }
                 Event::ModifiersChanged(m) if keyboard_via_egui => self.sync_modifiers(m),
@@ -584,17 +680,25 @@ impl SessionView {
                 Event::Copy if keyboard_via_egui => self.tap(KeyCode::KeyC),
                 Event::Cut if keyboard_via_egui => {
                     let m = ui.input(|i| i.modifiers);
-                    self.tap(if m.shift && !m.ctrl { KeyCode::Delete } else { KeyCode::KeyX });
+                    self.tap(if m.shift && !m.ctrl {
+                        KeyCode::Delete
+                    } else {
+                        KeyCode::KeyX
+                    });
                 }
                 paste @ (Event::Paste(_) | Event::PasteImage(_)) if keyboard_via_egui => {
-                    if let Event::Paste(text) = paste {
-                        if self.options.clipboard {
-                            self.last_clipboard = Some(LocalClip::Text(text.clone()));
-                            self.send(SessionCommand::ClipboardText(text));
-                        }
+                    if let Event::Paste(text) = paste
+                        && self.options.clipboard
+                    {
+                        self.last_clipboard = Some(LocalClip::Text(text.clone()));
+                        self.send(SessionCommand::ClipboardText(text));
                     }
                     let m = ui.input(|i| i.modifiers);
-                    self.tap(if m.shift && !m.ctrl { KeyCode::Insert } else { KeyCode::KeyV });
+                    self.tap(if m.shift && !m.ctrl {
+                        KeyCode::Insert
+                    } else {
+                        KeyCode::KeyV
+                    });
                 }
                 _ => {}
             }
@@ -657,11 +761,15 @@ impl SessionView {
 
     /// Resize the remote desktop to the window, debounced.
     fn follow_window_size(&mut self, ctx: &egui::Context, area: ERect) {
-        if self.options.resolution != Resolution::Window || !matches!(self.phase, Phase::Connected) {
+        if self.options.resolution != Resolution::Window || !matches!(self.phase, Phase::Connected)
+        {
             return;
         }
         let ppp = ctx.pixels_per_point();
-        let want = (((area.width() * ppp) as u32) & !1, ((area.height() * ppp) as u32) & !1);
+        let want = (
+            ((area.width() * ppp) as u32) & !1,
+            ((area.height() * ppp) as u32) & !1,
+        );
         if want.0 < 200 || want.1 < 200 || want == self.resize_sent {
             self.resize_pending = None;
             return;
@@ -669,7 +777,10 @@ impl SessionView {
         match self.resize_pending {
             Some((w, since)) if w == want => {
                 if since.elapsed() >= Duration::from_millis(350) {
-                    self.send(SessionCommand::Resize { width: want.0, height: want.1 });
+                    self.send(SessionCommand::Resize {
+                        width: want.0,
+                        height: want.1,
+                    });
                     self.resize_sent = want;
                     self.resize_pending = None;
                 } else {
@@ -683,10 +794,16 @@ impl SessionView {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, grabbed: &[GrabbedKey], actions: &mut Vec<ViewAction>) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        grabbed: &[GrabbedKey],
+        actions: &mut Vec<ViewAction>,
+    ) {
         let ctx = ui.ctx().clone();
         let area = ui.available_rect_before_wrap();
-        ui.painter().rect_filled(area, 0.0, theme::canvas(ui.visuals().dark_mode));
+        ui.painter()
+            .rect_filled(area, 0.0, theme::canvas(ui.visuals().dark_mode));
 
         match self.phase.clone() {
             Phase::Connected => {}
@@ -701,7 +818,10 @@ impl SessionView {
                         ui.add_space(12.0);
                         if ui.button("Cancel").clicked() {
                             self.disconnect();
-                            self.phase = Phase::Disconnected { reason: Some("Cancelled".into()), error: false };
+                            self.phase = Phase::Disconnected {
+                                reason: Some("Cancelled".into()),
+                                error: false,
+                            };
                         }
                     });
                 });
@@ -715,9 +835,21 @@ impl SessionView {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(area.height() * 0.36);
-                        let (icon, color) = if error { (icons::WARNING, theme::DANGER) } else { (icons::POWER, ui.visuals().weak_text_color()) };
+                        let (icon, color) = if error {
+                            (icons::WARNING, theme::DANGER)
+                        } else {
+                            (icons::POWER, ui.visuals().weak_text_color())
+                        };
                         ui.label(egui::RichText::new(icon).size(28.0).color(color));
-                        ui.label(egui::RichText::new(if error { "Connection failed" } else { "Disconnected" }).size(18.0).strong());
+                        ui.label(
+                            egui::RichText::new(if error {
+                                "Connection failed"
+                            } else {
+                                "Disconnected"
+                            })
+                            .size(18.0)
+                            .strong(),
+                        );
                         if let Some(r) = reason {
                             ui.add_space(4.0);
                             ui.add(egui::Label::new(egui::RichText::new(r).weak()).wrap());
@@ -725,7 +857,13 @@ impl SessionView {
                         if let Some((at, attempt)) = self.reconnect {
                             let secs = at.saturating_duration_since(Instant::now()).as_secs() + 1;
                             ui.add_space(6.0);
-                            ui.label(egui::RichText::new(format!("Reconnecting in {secs} s (attempt {attempt} of {})", RECONNECT_DELAYS.len())).color(theme::WARN));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Reconnecting in {secs} s (attempt {attempt} of {})",
+                                    RECONNECT_DELAYS.len()
+                                ))
+                                .color(theme::WARN),
+                            );
                             ui.ctx().request_repaint_after(Duration::from_millis(250));
                             if ui.small_button("Stop trying").clicked() {
                                 self.reconnect = None;
@@ -735,7 +873,16 @@ impl SessionView {
                         ui.horizontal(|ui| {
                             let w = 220.0;
                             ui.add_space((ui.available_width() - w) / 2.0);
-                            if ui.add(egui::Button::new(format!("{} Reconnect", icons::ARROW_CLOCKWISE)).min_size(egui::vec2(100.0, 30.0))).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(format!(
+                                        "{} Reconnect",
+                                        icons::ARROW_CLOCKWISE
+                                    ))
+                                    .min_size(egui::vec2(100.0, 30.0)),
+                                )
+                                .clicked()
+                            {
                                 self.phase = Phase::NeedCredentials { message: None };
                                 actions.push(ViewAction::SubmitCredentials {
                                     user: self.form_user.clone(),
@@ -743,7 +890,13 @@ impl SessionView {
                                     remember: false,
                                 });
                             }
-                            if ui.add(egui::Button::new("Close tab").min_size(egui::vec2(100.0, 30.0))).clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new("Close tab")
+                                        .min_size(egui::vec2(100.0, 30.0)),
+                                )
+                                .clicked()
+                            {
                                 actions.push(ViewAction::Close);
                             }
                         });
@@ -771,7 +924,12 @@ impl SessionView {
             ui.memory_mut(|m| {
                 m.set_focus_lock_filter(
                     id,
-                    egui::EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() },
+                    egui::EventFilter {
+                        tab: true,
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        escape: true,
+                    },
                 )
             });
         } else if self.focused {
@@ -788,7 +946,12 @@ impl SessionView {
 
         if let Some(tex) = &self.texture {
             let painter = ui.painter_at(area);
-            painter.image(tex.id(), img, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+            painter.image(
+                tex.id(),
+                img,
+                ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
         }
 
         self.handle_input(ui, img, hovered, grabbed, actions);
@@ -803,7 +966,12 @@ impl SessionView {
                         ctx.set_cursor_icon(CursorIcon::None);
                         let k = img.width() / self.remote.0.max(1) as f32;
                         let r = ERect::from_min_size(p - c.hot * k, c.size * k);
-                        ui.painter_at(area).image(c.tex.id(), r, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                        ui.painter_at(area).image(
+                            c.tex.id(),
+                            r,
+                            ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
                     }
                 }
             }
@@ -812,8 +980,15 @@ impl SessionView {
         self.overlays(ui, area, hover_pos, actions);
     }
 
-    fn credentials_card(&mut self, ui: &mut egui::Ui, area: ERect, message: Option<String>, actions: &mut Vec<ViewAction>) {
-        let card = ERect::from_center_size(area.center(), egui::vec2(340.0, 250.0).min(area.size()));
+    fn credentials_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        area: ERect,
+        message: Option<String>,
+        actions: &mut Vec<ViewAction>,
+    ) {
+        let card =
+            ERect::from_center_size(area.center(), egui::vec2(340.0, 250.0).min(area.size()));
         ui.scope_builder(egui::UiBuilder::new().max_rect(card), |ui| {
             egui::Frame::window(ui.style()).inner_margin(20.0).show(ui, |ui| {
                 ui.set_width(card.width() - 40.0);
@@ -854,7 +1029,13 @@ impl SessionView {
         });
     }
 
-    fn overlays(&mut self, ui: &mut egui::Ui, area: ERect, hover: Option<Pos2>, actions: &mut Vec<ViewAction>) {
+    fn overlays(
+        &mut self,
+        ui: &mut egui::Ui,
+        area: ERect,
+        hover: Option<Pos2>,
+        actions: &mut Vec<ViewAction>,
+    ) {
         let ctx = ui.ctx().clone();
         let near_top = hover.is_some_and(|p| area.contains(p) && p.y - area.top() < 48.0);
         let show_bar = near_top || self.toolbar_pinned || !self.focused;
@@ -865,64 +1046,120 @@ impl SessionView {
                 .fixed_pos(Pos2::new(area.center().x, area.top() + 8.0))
                 .pivot(Align2::CENTER_TOP)
                 .show(&ctx, |ui| {
-                    egui::Frame::popup(ui.style()).corner_radius(18).inner_margin(egui::vec2(10.0, 4.0)).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.label(egui::RichText::new(&self.title).strong());
-                            ui.label(egui::RichText::new(&self.detail).weak().small());
-                            ui.separator();
-                            let mut scale = self.options.scale;
-                            egui::ComboBox::from_id_salt(("scale", self.id))
-                                .selected_text(scale.label())
-                                .width(110.0)
-                                .show_ui(ui, |ui| {
-                                    for m in ScaleMode::ALL {
-                                        ui.selectable_value(&mut scale, m, m.label());
+                    egui::Frame::popup(ui.style())
+                        .corner_radius(18)
+                        .inner_margin(egui::vec2(10.0, 4.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                ui.label(egui::RichText::new(&self.title).strong());
+                                ui.label(egui::RichText::new(&self.detail).weak().small());
+                                ui.separator();
+                                let mut scale = self.options.scale;
+                                egui::ComboBox::from_id_salt(("scale", self.id))
+                                    .selected_text(scale.label())
+                                    .width(110.0)
+                                    .show_ui(ui, |ui| {
+                                        for m in ScaleMode::ALL {
+                                            ui.selectable_value(&mut scale, m, m.label());
+                                        }
+                                    });
+                                self.options.scale = scale;
+                                if ui
+                                    .button(icons::CORNERS_OUT)
+                                    .on_hover_text("Full screen (Ctrl+Alt+Enter)")
+                                    .clicked()
+                                {
+                                    actions.push(ViewAction::ToggleFullscreen);
+                                }
+                                if ui
+                                    .button(format!("{} Ctrl+Alt+Del", icons::KEYBOARD))
+                                    .on_hover_text("Send Ctrl+Alt+Del")
+                                    .clicked()
+                                {
+                                    self.send(SessionCommand::CtrlAltDel);
+                                }
+                                let rec = self.recorder.is_some();
+                                let rec_btn = egui::Button::new(
+                                    egui::RichText::new(icons::RECORD).color(if rec {
+                                        theme::DANGER
+                                    } else {
+                                        ui.visuals().text_color()
+                                    }),
+                                );
+                                if ui
+                                    .add(rec_btn)
+                                    .on_hover_text(if rec {
+                                        "Stop recording"
+                                    } else {
+                                        "Record this session"
+                                    })
+                                    .clicked()
+                                {
+                                    actions.push(if rec {
+                                        ViewAction::StopRecording
+                                    } else {
+                                        ViewAction::StartRecording
+                                    });
+                                }
+                                if self.options.audio && self.endpoint.protocol == Protocol::Rdp {
+                                    let icon = if self.muted || self.volume == 0 {
+                                        icons::SPEAKER_X
+                                    } else if self.volume < 50 {
+                                        icons::SPEAKER_LOW
+                                    } else {
+                                        icons::SPEAKER_HIGH
+                                    };
+                                    if ui
+                                        .button(icon)
+                                        .on_hover_text(if self.muted { "Unmute" } else { "Mute" })
+                                        .clicked()
+                                    {
+                                        self.toggle_mute();
                                     }
-                                });
-                            self.options.scale = scale;
-                            if ui.button(icons::CORNERS_OUT).on_hover_text("Full screen (Ctrl+Alt+Enter)").clicked() {
-                                actions.push(ViewAction::ToggleFullscreen);
-                            }
-                            if ui.button(format!("{} Ctrl+Alt+Del", icons::KEYBOARD)).on_hover_text("Send Ctrl+Alt+Del").clicked() {
-                                self.send(SessionCommand::CtrlAltDel);
-                            }
-                            let rec = self.recorder.is_some();
-                            let rec_btn = egui::Button::new(egui::RichText::new(icons::RECORD).color(if rec { theme::DANGER } else { ui.visuals().text_color() }));
-                            if ui.add(rec_btn).on_hover_text(if rec { "Stop recording" } else { "Record this session" }).clicked() {
-                                actions.push(if rec { ViewAction::StopRecording } else { ViewAction::StartRecording });
-                            }
-                            if self.options.audio && self.endpoint.protocol == Protocol::Rdp {
-                                let icon = if self.muted || self.volume == 0 {
-                                    icons::SPEAKER_X
-                                } else if self.volume < 50 {
-                                    icons::SPEAKER_LOW
-                                } else {
-                                    icons::SPEAKER_HIGH
-                                };
-                                if ui.button(icon).on_hover_text(if self.muted { "Unmute" } else { "Mute" }).clicked() {
-                                    self.toggle_mute();
+                                    let mut v = if self.muted { 0 } else { self.volume };
+                                    ui.spacing_mut().slider_width = 80.0;
+                                    let s = ui
+                                        .add(egui::Slider::new(&mut v, 0..=100).show_value(false))
+                                        .on_hover_text(format!("Volume {v}%"));
+                                    if s.changed() {
+                                        self.set_volume(v);
+                                    }
                                 }
-                                let mut v = if self.muted { 0 } else { self.volume };
-                                ui.spacing_mut().slider_width = 80.0;
-                                let s = ui.add(egui::Slider::new(&mut v, 0..=100).show_value(false)).on_hover_text(format!("Volume {v}%"));
-                                if s.changed() {
-                                    self.set_volume(v);
+                                if ui
+                                    .button(icons::CAMERA)
+                                    .on_hover_text("Copy screenshot to clipboard")
+                                    .clicked()
+                                {
+                                    self.screenshot(&ctx);
+                                    actions.push(ViewAction::Toast(
+                                        "Screenshot copied".into(),
+                                        ToastKind::Success,
+                                    ));
                                 }
-                            }
-                            if ui.button(icons::CAMERA).on_hover_text("Copy screenshot to clipboard").clicked() {
-                                self.screenshot(&ctx);
-                                actions.push(ViewAction::Toast("Screenshot copied".into(), ToastKind::Success));
-                            }
-                            ui.toggle_value(&mut self.show_stats, icons::CHART_BAR).on_hover_text("Connection statistics");
-                            ui.toggle_value(&mut self.toolbar_pinned, icons::PUSH_PIN).on_hover_text("Keep this toolbar visible");
-                            ui.separator();
-                            if ui.button(egui::RichText::new(format!("{} Disconnect", icons::SIGN_OUT)).color(theme::DANGER)).clicked() {
-                                self.disconnect();
-                                self.phase = Phase::Disconnected { reason: None, error: false };
-                            }
+                                ui.toggle_value(&mut self.show_stats, icons::CHART_BAR)
+                                    .on_hover_text("Connection statistics");
+                                ui.toggle_value(&mut self.toolbar_pinned, icons::PUSH_PIN)
+                                    .on_hover_text("Keep this toolbar visible");
+                                ui.separator();
+                                if ui
+                                    .button(
+                                        egui::RichText::new(format!(
+                                            "{} Disconnect",
+                                            icons::SIGN_OUT
+                                        ))
+                                        .color(theme::DANGER),
+                                    )
+                                    .clicked()
+                                {
+                                    self.disconnect();
+                                    self.phase = Phase::Disconnected {
+                                        reason: None,
+                                        error: false,
+                                    };
+                                }
+                            });
                         });
-                    });
                 });
         }
 
@@ -947,9 +1184,20 @@ impl SessionView {
                 util::human_rate(self.rates.down),
                 util::human_rate(self.rates.up)
             );
-            let galley = ui.painter().layout_no_wrap(lines, egui::FontId::monospace(11.5), Color32::from_gray(230));
+            let galley = ui.painter().layout_no_wrap(
+                lines,
+                egui::FontId::monospace(11.5),
+                Color32::from_gray(230),
+            );
             let pos = Pos2::new(area.right() - galley.size().x - 20.0, area.top() + 12.0);
-            ui.painter().rect_filled(ERect::from_min_size(pos - egui::vec2(8.0, 6.0), galley.size() + egui::vec2(16.0, 12.0)), 6.0, Color32::from_black_alpha(170));
+            ui.painter().rect_filled(
+                ERect::from_min_size(
+                    pos - egui::vec2(8.0, 6.0),
+                    galley.size() + egui::vec2(16.0, 12.0),
+                ),
+                6.0,
+                Color32::from_black_alpha(170),
+            );
             ui.painter().galley(pos, galley, Color32::WHITE);
             ctx.request_repaint_after(Duration::from_millis(500));
         }
@@ -966,12 +1214,23 @@ impl SessionView {
     }
 
     pub fn start_recording(&mut self, dir: PathBuf) -> anyhow::Result<PathBuf> {
-        let h = self.handle.as_ref().ok_or_else(|| anyhow::anyhow!("not connected"))?;
-        let name = format!("{}_{}.peekrec", util::safe_file_name(&self.title), util::file_stamp());
+        let h = self
+            .handle
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("not connected"))?;
+        let name = format!(
+            "{}_{}.peekrec",
+            util::safe_file_name(&self.title),
+            util::file_stamp()
+        );
         let path = dir.join(name);
         let ep = self.endpoint.to_string();
         let initial = h.frame.read(|fb| fb.clone());
-        let mut rec = Recorder::start(&path, &[("endpoint", ep.as_str()), ("title", self.title.as_str())], &initial)?;
+        let mut rec = Recorder::start(
+            &path,
+            &[("endpoint", ep.as_str()), ("title", self.title.as_str())],
+            &initial,
+        )?;
         // Session sound goes into the recording too.
         match rec.audio_tap() {
             Ok(tap) => h.audio.set_tap(Some(tap)),
@@ -999,7 +1258,12 @@ impl SessionView {
 
     /// Small live preview for the overview grid.
     pub fn texture_id(&self) -> Option<(egui::TextureId, Vec2)> {
-        self.texture.as_ref().map(|t| (t.id(), Vec2::new(self.remote.0 as f32, self.remote.1 as f32)))
+        self.texture.as_ref().map(|t| {
+            (
+                t.id(),
+                Vec2::new(self.remote.0 as f32, self.remote.1 as f32),
+            )
+        })
     }
 }
 
@@ -1008,4 +1272,3 @@ impl Drop for SessionView {
         self.disconnect();
     }
 }
-

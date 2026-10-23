@@ -9,8 +9,14 @@ use std::io::{BufReader, Write};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    anyhow::ensure!(args.len() >= 2, "usage: export <in.peekrec> <out.mp4> [--check frame.bmp]");
-    let (input, output) = (std::path::Path::new(&args[0]), std::path::Path::new(&args[1]));
+    anyhow::ensure!(
+        args.len() >= 2,
+        "usage: export <in.peekrec> <out.mp4> [--check frame.bmp]"
+    );
+    let (input, output) = (
+        std::path::Path::new(&args[0]),
+        std::path::Path::new(&args[1]),
+    );
     let started = std::time::Instant::now();
     let mut last = -1i32;
     let s = export_mp4(input, output, Mp4Options::default(), |p| {
@@ -45,15 +51,24 @@ fn check(mp4_path: &std::path::Path, bmp: &str) -> anyhow::Result<()> {
     let f = std::fs::File::open(mp4_path)?;
     let size = f.metadata()?.len();
     let mut mp4 = mp4::Mp4Reader::read_header(BufReader::new(f), size)?;
-    let (&track_id, track) = mp4.tracks().iter().next().ok_or_else(|| anyhow::anyhow!("no track"))?;
+    let (&track_id, track) = mp4
+        .tracks()
+        .iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no track"))?;
     let count = track.sample_count();
-    let (sps, pps) = (track.sequence_parameter_set()?.to_vec(), track.picture_parameter_set()?.to_vec());
+    let (sps, pps) = (
+        track.sequence_parameter_set()?.to_vec(),
+        track.picture_parameter_set()?.to_vec(),
+    );
     let mut dec = openh264::decoder::Decoder::new()?;
     let annexb = |nal: &[u8]| [&[0u8, 0, 0, 1][..], nal].concat();
     dec.decode(&[annexb(&sps), annexb(&pps)].concat())?;
     let (mut decoded, mut saved) = (0, false);
     for n in 1..=count {
-        let Some(sample) = mp4.read_sample(track_id, n)? else { continue };
+        let Some(sample) = mp4.read_sample(track_id, n)? else {
+            continue;
+        };
         // AVCC (length-prefixed) back to Annex B for the decoder.
         let mut data = &sample.bytes[..];
         let mut stream = Vec::new();

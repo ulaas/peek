@@ -12,7 +12,10 @@ pub struct Reader<R> {
 
 impl<R: AsyncRead + Unpin> Reader<R> {
     pub fn new(r: R, stats: Option<Arc<SessionStats>>) -> Self {
-        Self { inner: BufReader::with_capacity(256 * 1024, r), stats }
+        Self {
+            inner: BufReader::with_capacity(256 * 1024, r),
+            stats,
+        }
     }
 
     #[inline]

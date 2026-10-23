@@ -24,8 +24,8 @@ use ironrdp::session::image::DecodedImage;
 use ironrdp::session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput, fast_path};
 use ironrdp_tokio::{FramedWrite as _, single_sequence_step_read, split_tokio_framed};
 use peek_core::{
-    ConnectRequest, Experience, CursorImage, CursorUpdate, InputEvent, KeyCode, MouseButton, Rect, SessionCommand,
-    SessionContext, SessionEvent, SharedFrame,
+    ConnectRequest, CursorImage, CursorUpdate, Experience, InputEvent, KeyCode, MouseButton, Rect,
+    SessionCommand, SessionContext, SessionEvent, SharedFrame,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,7 +44,9 @@ impl ironrdp_tokio::NetworkClient for NoNetwork {
         &mut self,
         _: &ironrdp::connector::sspi::generator::NetworkRequest,
     ) -> connector::ConnectorResult<Vec<u8>> {
-        Err(connector::general_err!("Kerberos KDC proxy is not supported"))
+        Err(connector::general_err!(
+            "Kerberos KDC proxy is not supported"
+        ))
     }
 }
 
@@ -59,18 +61,27 @@ fn split_user(raw: &str, domain: Option<&str>) -> (Option<String>, String) {
         Some((d, u)) => (Some(d), u),
         None => (domain, raw),
     };
-    let domain = domain.map(str::trim).filter(|d| !d.is_empty() && !account.contains('@'));
+    let domain = domain
+        .map(str::trim)
+        .filter(|d| !d.is_empty() && !account.contains('@'));
     (domain.map(str::to_owned), account.to_owned())
 }
 
 fn connector_config(req: &ConnectRequest, width: u16, height: u16) -> connector::Config {
     let creds = &req.credentials;
-    let raw_user = creds.username.clone().or_else(|| req.endpoint.username.clone()).unwrap_or_default();
+    let raw_user = creds
+        .username
+        .clone()
+        .or_else(|| req.endpoint.username.clone())
+        .unwrap_or_default();
     let (domain, username) = split_user(&raw_user, creds.domain.as_deref());
     let client_name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "peek".into());
 
     connector::Config {
-        credentials: Credentials::UsernamePassword { username, password: creds.password.clone().unwrap_or_default() },
+        credentials: Credentials::UsernamePassword {
+            username,
+            password: creds.password.clone().unwrap_or_default(),
+        },
         domain,
         enable_tls: true,
         enable_credssp: true,
@@ -102,7 +113,11 @@ fn connector_config(req: &ConnectRequest, width: u16, height: u16) -> connector:
         autologon: false,
         enable_audio_playback: req.options.audio,
         // XCRUSH, the strongest bulk compressor Windows offers.
-        compression_type: req.options.experience.compression.then_some(CompressionType::Rdp61),
+        compression_type: req
+            .options
+            .experience
+            .compression
+            .then_some(CompressionType::Rdp61),
         multitransport_flags: None,
         performance_flags: performance_flags(&req.options.experience),
         hardware_id: None,
@@ -123,13 +138,20 @@ fn performance_flags(e: &Experience) -> PerformanceFlags {
     set(!e.menu_animations, PerformanceFlags::DISABLE_MENUANIMATIONS);
     set(!e.visual_styles, PerformanceFlags::DISABLE_THEMING);
     set(e.font_smoothing, PerformanceFlags::ENABLE_FONT_SMOOTHING);
-    set(e.desktop_composition, PerformanceFlags::ENABLE_DESKTOP_COMPOSITION);
+    set(
+        e.desktop_composition,
+        PerformanceFlags::ENABLE_DESKTOP_COMPOSITION,
+    );
     f
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
-    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 async fn connect(
@@ -148,12 +170,17 @@ async fn connect(
     let client_addr = stream.local_addr()?;
 
     let mut framed = ironrdp_tokio::TokioFramed::new(stream);
-    let mut connector = connector::ClientConnector::new(connector_config(req, width, height), client_addr)
-        .with_static_channel(ironrdp::dvc::DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new()))));
+    let mut connector =
+        connector::ClientConnector::new(connector_config(req, width, height), client_addr)
+            .with_static_channel(
+                ironrdp::dvc::DrdynvcClient::new()
+                    .with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new()))),
+            );
 
     let clip = if req.options.clipboard && !req.options.view_only {
         let (backend, link) = clipboard::new();
-        connector = connector.with_static_channel(ironrdp::cliprdr::CliprdrClient::new(Box::new(backend)));
+        connector =
+            connector.with_static_channel(ironrdp::cliprdr::CliprdrClient::new(Box::new(backend)));
         Some(link)
     } else {
         None
@@ -167,30 +194,49 @@ async fn connect(
         // Windows starts sound output only after the client has announced the
         // device redirection channel; announce it, with no devices.
         let name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "peek".into());
-        connector = connector.with_static_channel(ironrdp::rdpdr::Rdpdr::new(Box::new(ironrdp::rdpdr::NoopRdpdrBackend), name));
+        connector = connector.with_static_channel(ironrdp::rdpdr::Rdpdr::new(
+            Box::new(ironrdp::rdpdr::NoopRdpdrBackend),
+            name,
+        ));
         tracing::info!("audio: requesting rdpsnd (with rdpdr)");
     }
 
     ctx.events.status("Negotiating security");
-    let should_upgrade = ironrdp_tokio::connect_begin(&mut framed, &mut connector).await.map_err(rdp_err)?;
+    let should_upgrade = ironrdp_tokio::connect_begin(&mut framed, &mut connector)
+        .await
+        .map_err(rdp_err)?;
     let (initial, leftover) = framed.into_inner();
     let host = req.endpoint.host.as_str();
-    let (tls, cert) = ironrdp_tls::upgrade(initial, host).await.context("TLS handshake failed")?;
+    let (tls, cert) = ironrdp_tls::upgrade(initial, host)
+        .await
+        .context("TLS handshake failed")?;
     {
         use x509_cert::der::Encode as _;
         if let Ok(der) = cert.to_der() {
-            ctx.events.send(SessionEvent::ServerIdentity { fingerprint: sha256_hex(&der) });
+            ctx.events.send(SessionEvent::ServerIdentity {
+                fingerprint: sha256_hex(&der),
+            });
         }
     }
     let upgraded = ironrdp_tokio::mark_as_upgraded(should_upgrade, &mut connector);
     let erased: Box<dyn AsyncReadWrite + Unpin + Send + Sync> = Box::new(tls);
     let mut framed = ironrdp_tokio::TokioFramed::new_with_leftover(erased, leftover);
-    let public_key = ironrdp_tls::extract_tls_server_public_key(&cert).context("server certificate has no public key")?.to_owned();
+    let public_key = ironrdp_tls::extract_tls_server_public_key(&cert)
+        .context("server certificate has no public key")?
+        .to_owned();
 
     ctx.events.status("Signing in");
-    let result = ironrdp_tokio::connect_finalize(upgraded, connector, &mut framed, &mut NoNetwork, host.into(), public_key, None)
-        .await
-        .map_err(rdp_err)?;
+    let result = ironrdp_tokio::connect_finalize(
+        upgraded,
+        connector,
+        &mut framed,
+        &mut NoNetwork,
+        host.into(),
+        public_key,
+        None,
+    )
+    .await
+    .map_err(rdp_err)?;
     Ok((result, framed, clip))
 }
 
@@ -198,7 +244,10 @@ async fn connect(
 fn rdp_err(e: connector::ConnectorError) -> anyhow::Error {
     use connector::ConnectorErrorKind as K;
     let msg = match e.kind() {
-        K::Credssp(_) => return peek_core::AuthError::Rejected("check the user name and password".into()).into(),
+        K::Credssp(_) => {
+            return peek_core::AuthError::Rejected("check the user name and password".into())
+                .into();
+        }
         K::AccessDenied => "access denied: this account may not sign in remotely".to_string(),
         K::Negotiation(f) => format!("the server refused the security negotiation ({f:?})"),
         _ => format!("{}", e.report()),
@@ -208,7 +257,10 @@ fn rdp_err(e: connector::ConnectorError) -> anyhow::Error {
 
 enum Flow {
     #[allow(dead_code)] // reconnect-on-resize for servers without display control
-    Reconnect { width: u16, height: u16 },
+    Reconnect {
+        width: u16,
+        height: u16,
+    },
     Done(Option<String>),
 }
 
@@ -220,7 +272,10 @@ pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result
     loop {
         let (result, framed, clip) = connect(&req, width, height, &ctx).await?;
         match active_session(&req, framed, result, clip, &mut ctx).await? {
-            Flow::Reconnect { width: w, height: h } => (width, height) = (w, h),
+            Flow::Reconnect {
+                width: w,
+                height: h,
+            } => (width, height) = (w, h),
             Flow::Done(reason) => return Ok(reason),
         }
     }
@@ -233,8 +288,13 @@ fn blit(image: &DecodedImage, frame: &SharedFrame, r: &InclusiveRectangle) {
     if w.fb().width() != iw || w.fb().height() != ih {
         w.resize(iw, ih);
     }
-    let rect = Rect::new(r.left as u32, r.top as u32, (r.right as u32 + 1).saturating_sub(r.left as u32), (r.bottom as u32 + 1).saturating_sub(r.top as u32))
-        .clamp_to(iw, ih);
+    let rect = Rect::new(
+        r.left as u32,
+        r.top as u32,
+        (r.right as u32 + 1).saturating_sub(r.left as u32),
+        (r.bottom as u32 + 1).saturating_sub(r.top as u32),
+    )
+    .clamp_to(iw, ih);
     if rect.is_empty() {
         return;
     }
@@ -244,7 +304,11 @@ fn blit(image: &DecodedImage, frame: &SharedFrame, r: &InclusiveRectangle) {
     for y in rect.y..rect.bottom() {
         let start = y as usize * stride + rect.x as usize * 4;
         let src = &data[start..start + rect.w as usize * 4];
-        for (d, s) in fb.row_mut(y, rect.x, rect.w).iter_mut().zip(src.chunks_exact(4)) {
+        for (d, s) in fb
+            .row_mut(y, rect.x, rect.w)
+            .iter_mut()
+            .zip(src.as_chunks::<4>().0)
+        {
             *d = u32::from_le_bytes([s[0], s[1], s[2], 0xFF]);
         }
     }
@@ -257,7 +321,10 @@ fn scancode(k: KeyCode) -> Scancode {
 }
 
 fn to_ops(ev: InputEvent) -> Vec<Operation> {
-    let pos = |x: u32, y: u32| MousePosition { x: x.min(u16::MAX as u32) as u16, y: y.min(u16::MAX as u32) as u16 };
+    let pos = |x: u32, y: u32| MousePosition {
+        x: x.min(u16::MAX as u32) as u16,
+        y: y.min(u16::MAX as u32) as u16,
+    };
     match ev {
         InputEvent::Key { code, down: true } => vec![Operation::KeyPressed(scancode(code))],
         InputEvent::Key { code, down: false } => vec![Operation::KeyReleased(scancode(code))],
@@ -272,17 +339,27 @@ fn to_ops(ev: InputEvent) -> Vec<Operation> {
                 MouseButton::X1 => ironrdp::input::MouseButton::X1,
                 MouseButton::X2 => ironrdp::input::MouseButton::X2,
             };
-            let op = if down { Operation::MouseButtonPressed(b) } else { Operation::MouseButtonReleased(b) };
+            let op = if down {
+                Operation::MouseButtonPressed(b)
+            } else {
+                Operation::MouseButtonReleased(b)
+            };
             vec![Operation::MouseMove(pos(x, y)), op]
         }
         InputEvent::Wheel { dx, dy, x, y } => {
             let mut ops = vec![Operation::MouseMove(pos(x, y))];
             let clamp = |v: i32| v.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
             if dy != 0 {
-                ops.push(Operation::WheelRotations(WheelRotations { is_vertical: true, rotation_units: clamp(dy) }));
+                ops.push(Operation::WheelRotations(WheelRotations {
+                    is_vertical: true,
+                    rotation_units: clamp(dy),
+                }));
             }
             if dx != 0 {
-                ops.push(Operation::WheelRotations(WheelRotations { is_vertical: false, rotation_units: clamp(dx) }));
+                ops.push(Operation::WheelRotations(WheelRotations {
+                    is_vertical: false,
+                    rotation_units: clamp(dx),
+                }));
             }
             ops
         }
@@ -300,7 +377,9 @@ async fn active_session(
     let (mut reader, mut writer) = split_tokio_framed(framed);
     let size = result.desktop_size;
     let mut image = DecodedImage::new(PixelFormat::RgbA32, size.width, size.height);
-    ctx.frame.write().resize(size.width as u32, size.height as u32);
+    ctx.frame
+        .write()
+        .resize(size.width as u32, size.height as u32);
     ctx.events.send(SessionEvent::Connected {
         width: size.width as u32,
         height: size.height as u32,
@@ -388,28 +467,39 @@ async fn active_session(
                     ctx.stats.add_update();
                     blit(&image, &ctx.frame, &region);
                 }
-                ActiveStageOutput::PointerDefault => ctx.events.send(SessionEvent::Cursor(CursorUpdate::Default)),
-                ActiveStageOutput::PointerHidden => ctx.events.send(SessionEvent::Cursor(CursorUpdate::Hidden)),
+                ActiveStageOutput::PointerDefault => {
+                    ctx.events.send(SessionEvent::Cursor(CursorUpdate::Default))
+                }
+                ActiveStageOutput::PointerHidden => {
+                    ctx.events.send(SessionEvent::Cursor(CursorUpdate::Hidden))
+                }
                 ActiveStageOutput::PointerPosition { .. } => {}
                 ActiveStageOutput::PointerBitmap(p) => {
-                    ctx.events.send(SessionEvent::Cursor(CursorUpdate::Image(Arc::new(CursorImage {
-                        width: p.width as u32,
-                        height: p.height as u32,
-                        hot_x: p.hotspot_x as u32,
-                        hot_y: p.hotspot_y as u32,
-                        rgba: p.bitmap_data.clone(),
-                    }))));
+                    ctx.events
+                        .send(SessionEvent::Cursor(CursorUpdate::Image(Arc::new(
+                            CursorImage {
+                                width: p.width as u32,
+                                height: p.height as u32,
+                                hot_x: p.hotspot_x as u32,
+                                hot_y: p.hotspot_y as u32,
+                                rgba: p.bitmap_data.clone(),
+                            },
+                        ))));
                 }
                 ActiveStageOutput::DeactivateAll => {
                     // Deactivation-Reactivation: the server changed the desktop (e.g. resize).
                     let mut activation = activation_factory.create();
                     let mut buf = WriteBuf::new();
                     loop {
-                        let written = single_sequence_step_read(&mut reader, &mut activation, &mut buf)
-                            .await
-                            .map_err(|e| anyhow::anyhow!("reactivation failed: {e}"))?;
+                        let written =
+                            single_sequence_step_read(&mut reader, &mut activation, &mut buf)
+                                .await
+                                .map_err(|e| anyhow::anyhow!("reactivation failed: {e}"))?;
                         if written.size().is_some() {
-                            writer.write_all(buf.filled()).await.context("connection lost")?;
+                            writer
+                                .write_all(buf.filled())
+                                .await
+                                .context("connection lost")?;
                         }
                         if let connector::connection_activation::ConnectionActivationState::Finalized {
                             desktop_size,
@@ -491,10 +581,17 @@ mod tests {
     fn experience_to_flags() {
         use peek_core::ConnectionSpeed;
         let lan = performance_flags(&ConnectionSpeed::Lan.experience());
-        assert_eq!(lan, PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION);
+        assert_eq!(
+            lan,
+            PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION
+        );
         let modem = performance_flags(&ConnectionSpeed::Modem.experience());
-        assert!(modem.contains(PerformanceFlags::DISABLE_WALLPAPER | PerformanceFlags::DISABLE_THEMING));
-        assert!(!modem.intersects(PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION));
+        assert!(
+            modem.contains(PerformanceFlags::DISABLE_WALLPAPER | PerformanceFlags::DISABLE_THEMING)
+        );
+        assert!(!modem.intersects(
+            PerformanceFlags::ENABLE_FONT_SMOOTHING | PerformanceFlags::ENABLE_DESKTOP_COMPOSITION
+        ));
 
         let mut req = ConnectRequest {
             endpoint: peek_core::Endpoint::parse("host").unwrap(),
@@ -510,12 +607,30 @@ mod tests {
     #[test]
     fn user_name_formats() {
         let s = |raw: &str, dom: Option<&str>| split_user(raw, dom);
-        assert_eq!(s("CORP\\alice", None), (Some("CORP".into()), "alice".into()));
-        assert_eq!(s("alice", Some("CORP")), (Some("CORP".into()), "alice".into()));
-        assert_eq!(s("alice@corp.local", None), (None, "alice@corp.local".into()));
-        assert_eq!(s("MicrosoftAccount\\you@hotmail.com", None), (None, "you@hotmail.com".into()));
-        assert_eq!(s("microsoftaccount\\you@outlook.com", None), (None, "you@outlook.com".into()));
-        assert_eq!(s("you@hotmail.com", Some("MicrosoftAccount")), (None, "you@hotmail.com".into()));
+        assert_eq!(
+            s("CORP\\alice", None),
+            (Some("CORP".into()), "alice".into())
+        );
+        assert_eq!(
+            s("alice", Some("CORP")),
+            (Some("CORP".into()), "alice".into())
+        );
+        assert_eq!(
+            s("alice@corp.local", None),
+            (None, "alice@corp.local".into())
+        );
+        assert_eq!(
+            s("MicrosoftAccount\\you@hotmail.com", None),
+            (None, "you@hotmail.com".into())
+        );
+        assert_eq!(
+            s("microsoftaccount\\you@outlook.com", None),
+            (None, "you@outlook.com".into())
+        );
+        assert_eq!(
+            s("you@hotmail.com", Some("MicrosoftAccount")),
+            (None, "you@hotmail.com".into())
+        );
         assert_eq!(s("\\alice", None), (None, "alice".into()));
         assert_eq!(s(".\\alice", None), (Some(".".into()), "alice".into()));
     }
@@ -523,7 +638,13 @@ mod tests {
     /// Every accepted format must also be accepted by sspi, or CredSSP fails before connecting.
     #[test]
     fn user_names_valid_for_sspi() {
-        for raw in ["CORP\\alice", "alice", "alice@corp.local", "MicrosoftAccount\\you@hotmail.com", "\\alice"] {
+        for raw in [
+            "CORP\\alice",
+            "alice",
+            "alice@corp.local",
+            "MicrosoftAccount\\you@hotmail.com",
+            "\\alice",
+        ] {
             let (domain, account) = split_user(raw, None);
             let u = ironrdp::connector::sspi::Username::new(&account, domain.as_deref());
             assert!(u.is_ok(), "{raw}: {u:?}");

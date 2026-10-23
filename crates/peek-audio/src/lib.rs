@@ -51,8 +51,9 @@ impl AudioOut {
         let (tx, rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         // cpal streams are not Send: the stream lives on its own thread.
-        let thread = std::thread::Builder::new().name("peek-audio".into()).spawn(move || {
-            match build_stream() {
+        let thread = std::thread::Builder::new()
+            .name("peek-audio".into())
+            .spawn(move || match build_stream() {
                 Ok((stream, shared)) => {
                     let _ = tx.send(Ok(shared));
                     let _ = stop_rx.recv();
@@ -61,10 +62,15 @@ impl AudioOut {
                 Err(e) => {
                     let _ = tx.send(Err(e));
                 }
-            }
-        })?;
+            })?;
         let shared = rx.recv().map_err(|_| anyhow!("audio thread ended"))??;
-        Ok(Self { shared, _stream: Arc::new(StreamThread { stop: Some(stop_tx), thread: Some(thread) }) })
+        Ok(Self {
+            shared,
+            _stream: Arc::new(StreamThread {
+                stop: Some(stop_tx),
+                thread: Some(thread),
+            }),
+        })
     }
 
     /// Queue interleaved 16-bit samples.
@@ -74,7 +80,11 @@ impl AudioOut {
         }
         let s = &self.shared;
         let mut q = s.queue.lock();
-        let Queue { samples: out, resampler, .. } = &mut *q;
+        let Queue {
+            samples: out,
+            resampler,
+            ..
+        } = &mut *q;
         resampler.process(samples, rate, channels, s.rate, s.channels, out);
         let frames = out.len() / s.channels as usize;
         if frames > ms_to_frames(MAX_QUEUE_MS, s.rate) {
@@ -86,7 +96,9 @@ impl AudioOut {
 
     /// 0.0 ..= 1.0 (anything above is clamped); applies immediately.
     pub fn set_volume(&self, gain: f32) {
-        self.shared.gain.store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.shared
+            .gain
+            .store(gain.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     /// Drop everything queued (seek, pause, mute).
@@ -100,7 +112,8 @@ impl AudioOut {
     /// Queued audio in milliseconds.
     pub fn queued_ms(&self) -> u32 {
         let q = self.shared.queue.lock();
-        (q.samples.len() as u64 * 1000 / (self.shared.rate as u64 * self.shared.channels as u64)) as u32
+        (q.samples.len() as u64 * 1000 / (self.shared.rate as u64 * self.shared.channels as u64))
+            as u32
     }
 
     /// True while sound is coming out.
@@ -133,24 +146,45 @@ fn ms_to_frames(ms: u32, rate: u32) -> usize {
 
 fn build_stream() -> anyhow::Result<(cpal::Stream, Arc<Shared>)> {
     let host = cpal::default_host();
-    let device = host.default_output_device().context("no audio output device")?;
-    let config = device.default_output_config().context("cannot read the output format")?;
+    let device = host
+        .default_output_device()
+        .context("no audio output device")?;
+    let config = device
+        .default_output_config()
+        .context("cannot read the output format")?;
     let format = config.sample_format();
     let config: cpal::StreamConfig = config.into();
     let shared = Arc::new(Shared {
-        queue: Mutex::new(Queue { samples: VecDeque::new(), primed: false, resampler: Resampler::default() }),
+        queue: Mutex::new(Queue {
+            samples: VecDeque::new(),
+            primed: false,
+            resampler: Resampler::default(),
+        }),
         gain: AtomicU32::new(1.0f32.to_bits()),
         playing: AtomicBool::new(false),
         rate: config.sample_rate,
         channels: config.channels,
     });
-    tracing::debug!(rate = config.sample_rate, channels = config.channels, ?format, "audio output");
+    tracing::debug!(
+        rate = config.sample_rate,
+        channels = config.channels,
+        ?format,
+        "audio output"
+    );
     let err = |e| tracing::warn!("audio output: {e}");
     let stream = match format {
-        cpal::SampleFormat::F32 => device.build_output_stream(&config, writer::<f32>(shared.clone()), err, None),
-        cpal::SampleFormat::I16 => device.build_output_stream(&config, writer::<i16>(shared.clone()), err, None),
-        cpal::SampleFormat::U16 => device.build_output_stream(&config, writer::<u16>(shared.clone()), err, None),
-        cpal::SampleFormat::I32 => device.build_output_stream(&config, writer::<i32>(shared.clone()), err, None),
+        cpal::SampleFormat::F32 => {
+            device.build_output_stream(&config, writer::<f32>(shared.clone()), err, None)
+        }
+        cpal::SampleFormat::I16 => {
+            device.build_output_stream(&config, writer::<i16>(shared.clone()), err, None)
+        }
+        cpal::SampleFormat::U16 => {
+            device.build_output_stream(&config, writer::<u16>(shared.clone()), err, None)
+        }
+        cpal::SampleFormat::I32 => {
+            device.build_output_stream(&config, writer::<i32>(shared.clone()), err, None)
+        }
         other => return Err(anyhow!("unsupported output sample format {other:?}")),
     }
     .context("cannot open the audio output")?;
@@ -159,7 +193,9 @@ fn build_stream() -> anyhow::Result<(cpal::Stream, Arc<Shared>)> {
 }
 
 /// The device callback: drain the queue, silence when it is short.
-fn writer<T: cpal::SizedSample + cpal::FromSample<f32>>(shared: Arc<Shared>) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
+fn writer<T: cpal::SizedSample + cpal::FromSample<f32>>(
+    shared: Arc<Shared>,
+) -> impl FnMut(&mut [T], &cpal::OutputCallbackInfo) + Send + 'static {
     move |out: &mut [T], _| {
         let gain = f32::from_bits(shared.gain.load(Ordering::Relaxed));
         let cushion = ms_to_frames(CUSHION_MS, shared.rate) * shared.channels as usize;
@@ -171,7 +207,11 @@ fn writer<T: cpal::SizedSample + cpal::FromSample<f32>>(shared: Arc<Shared>) -> 
                     q.primed = true;
                 }
                 for s in out.iter_mut() {
-                    let v = if q.primed { q.samples.pop_front() } else { None };
+                    let v = if q.primed {
+                        q.samples.pop_front()
+                    } else {
+                        None
+                    };
                     if v.is_none() {
                         q.primed = false;
                     }
@@ -205,14 +245,31 @@ impl Resampler {
     }
 
     /// Convert to `out_rate` / `ch_out` as 16-bit samples.
-    pub fn process_i16(&mut self, input: &[i16], rate: u32, ch_in: u16, out_rate: u32, ch_out: u16) -> Vec<i16> {
+    pub fn process_i16(
+        &mut self,
+        input: &[i16],
+        rate: u32,
+        ch_in: u16,
+        out_rate: u32,
+        ch_out: u16,
+    ) -> Vec<i16> {
         let mut out = VecDeque::new();
         self.process(input, rate, ch_in, out_rate, ch_out, &mut out);
-        out.into_iter().map(|v| (v * 32768.0).round().clamp(-32768.0, 32767.0) as i16).collect()
+        out.into_iter()
+            .map(|v| (v * 32768.0).round().clamp(-32768.0, 32767.0) as i16)
+            .collect()
     }
 
     /// Convert interleaved `input` and append it to `out` (f32, -1.0 ..= 1.0).
-    pub fn process(&mut self, input: &[i16], rate: u32, ch_in: u16, out_rate: u32, ch_out: u16, out: &mut VecDeque<f32>) {
+    pub fn process(
+        &mut self,
+        input: &[i16],
+        rate: u32,
+        ch_in: u16,
+        out_rate: u32,
+        ch_out: u16,
+        out: &mut VecDeque<f32>,
+    ) {
         if self.from != (rate, ch_in) {
             self.reset();
             self.from = (rate, ch_in);
@@ -224,7 +281,9 @@ impl Resampler {
                 let v = match (ci, c) {
                     (1, _) => f(0),
                     // Down-mix to mono.
-                    (_, _) if co == 1 => frame.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / ci as f32,
+                    (_, _) if co == 1 => {
+                        frame.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / ci as f32
+                    }
                     (_, c) if c < ci => f(c),
                     // More outputs than inputs (e.g. 5.1 device): front pair only.
                     _ => 0.0,
@@ -254,7 +313,14 @@ impl Resampler {
 mod tests {
     use super::*;
 
-    fn run(input: &[i16], rate: u32, ch: u16, out_rate: u32, out_ch: u16, chunk: usize) -> Vec<f32> {
+    fn run(
+        input: &[i16],
+        rate: u32,
+        ch: u16,
+        out_rate: u32,
+        out_ch: u16,
+        chunk: usize,
+    ) -> Vec<f32> {
         let mut r = Resampler::default();
         let mut out = VecDeque::new();
         for c in input.chunks(chunk * ch as usize) {
@@ -275,7 +341,9 @@ mod tests {
 
     #[test]
     fn chunking_does_not_change_output() {
-        let input: Vec<i16> = (0..9600).map(|i| ((i as f32 * 0.05).sin() * 20000.0) as i16).collect();
+        let input: Vec<i16> = (0..9600)
+            .map(|i| ((i as f32 * 0.05).sin() * 20000.0) as i16)
+            .collect();
         let a = run(&input, 44_100, 2, 48_000, 2, 4800);
         let b = run(&input, 44_100, 2, 48_000, 2, 17);
         assert_eq!(a.len(), b.len());
@@ -285,7 +353,10 @@ mod tests {
     #[test]
     fn channel_mapping() {
         // Mono to stereo duplicates; stereo to mono averages.
-        assert_eq!(run(&[16384, 16384], 48_000, 1, 48_000, 2, 2)[..2], [0.5, 0.5]);
+        assert_eq!(
+            run(&[16384, 16384], 48_000, 1, 48_000, 2, 2)[..2],
+            [0.5, 0.5]
+        );
         let m = run(&[16384, 0, 16384, 0, 16384, 0], 48_000, 2, 48_000, 1, 3);
         assert!((m[0] - 0.25).abs() < 1e-6, "{m:?}");
     }
@@ -303,6 +374,10 @@ mod device_tests {
         out.set_volume(0.0);
         out.push(&vec![0i16; 4410 * 2], 44_100, 2);
         std::thread::sleep(std::time::Duration::from_millis(200));
-        assert!(out.queued_ms() < 100, "queue drains: {} ms left", out.queued_ms());
+        assert!(
+            out.queued_ms() < 100,
+            "queue drains: {} ms left",
+            out.queued_ms()
+        );
     }
 }

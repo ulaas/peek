@@ -11,11 +11,19 @@ pub const WARN: Color32 = Color32::from_rgb(240, 176, 74);
 
 /// Background behind the remote picture (letterboxing).
 pub fn canvas(dark: bool) -> Color32 {
-    if dark { Color32::from_rgb(10, 12, 15) } else { Color32::from_rgb(38, 42, 48) }
+    if dark {
+        Color32::from_rgb(10, 12, 15)
+    } else {
+        Color32::from_rgb(38, 42, 48)
+    }
 }
 
 pub fn accent(ui: &egui::Ui) -> Color32 {
-    if ui.visuals().dark_mode { ACCENT_DARK } else { ACCENT_LIGHT }
+    if ui.visuals().dark_mode {
+        ACCENT_DARK
+    } else {
+        ACCENT_LIGHT
+    }
 }
 
 fn tune(style: &mut Style, dark: bool) {
@@ -42,7 +50,11 @@ fn tune(style: &mut Style, dark: bool) {
     v.window_fill = panel;
     v.panel_fill = bg;
     v.faint_bg_color = faint;
-    v.extreme_bg_color = if dark { Color32::from_rgb(12, 14, 18) } else { Color32::WHITE };
+    v.extreme_bg_color = if dark {
+        Color32::from_rgb(12, 14, 18)
+    } else {
+        Color32::WHITE
+    };
     v.override_text_color = Some(text);
     v.window_stroke = Stroke::new(1.0, line);
     v.window_corner_radius = CornerRadius::same(10);
@@ -50,7 +62,12 @@ fn tune(style: &mut Style, dark: bool) {
     v.selection.bg_fill = accent.gamma_multiply(if dark { 0.35 } else { 0.25 });
     v.selection.stroke = Stroke::new(1.0, accent);
     v.hyperlink_color = accent;
-    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+    for w in [
+        &mut v.widgets.inactive,
+        &mut v.widgets.hovered,
+        &mut v.widgets.active,
+        &mut v.widgets.open,
+    ] {
         w.corner_radius = CornerRadius::same(6);
     }
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, line);
@@ -69,8 +86,18 @@ fn tune(style: &mut Style, dark: bool) {
     // Hand over anything clickable; labels are not selectable text (no I-beam
     // over list rows and captions).
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-    v.window_shadow = egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(if dark { 110 } else { 38 }) };
-    v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(if dark { 90 } else { 30 }) };
+    v.window_shadow = egui::Shadow {
+        offset: [0, 8],
+        blur: 28,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 110 } else { 38 }),
+    };
+    v.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 14,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 90 } else { 30 }),
+    };
     v.striped = false;
     // Grid-fitted glyphs; no sub-pixel binning, which trades sharpness for spacing.
     v.text_options.font_hinting = true;
@@ -95,7 +122,10 @@ fn tune(style: &mut Style, dark: bool) {
         (TextStyle::Body, FontId::new(13.5, Proportional)),
         (TextStyle::Button, FontId::new(13.5, Proportional)),
         (TextStyle::Small, FontId::new(11.5, Proportional)),
-        (TextStyle::Monospace, FontId::new(12.5, egui::FontFamily::Monospace)),
+        (
+            TextStyle::Monospace,
+            FontId::new(12.5, egui::FontFamily::Monospace),
+        ),
     ]
     .into();
 }
@@ -126,10 +156,20 @@ pub fn semibold(size: f32) -> egui::FontId {
 /// unlike egui's built-in Ubuntu Light. Missing files keep egui's fonts.
 fn install_system_fonts(fonts: &mut egui::FontDefinitions) {
     let dir = std::env::var_os("WINDIR").map(|w| std::path::PathBuf::from(w).join("Fonts"));
-    let load = |names: &[&str]| -> Option<Vec<u8>> { names.iter().find_map(|n| std::fs::read(dir.as_ref()?.join(n)).ok()) };
+    let load = |names: &[&str]| -> Option<Vec<u8>> {
+        names
+            .iter()
+            .find_map(|n| std::fs::read(dir.as_ref()?.join(n)).ok())
+    };
     let mut put = |key: &str, bytes: Vec<u8>, family: egui::FontFamily| {
-        fonts.font_data.insert(key.into(), egui::FontData::from_owned(bytes).into());
-        fonts.families.entry(family).or_default().insert(0, key.into());
+        fonts
+            .font_data
+            .insert(key.into(), egui::FontData::from_owned(bytes).into());
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, key.into());
     };
     let regular = load(&["segoeui.ttf"]);
     if let Some(b) = regular.clone() {
@@ -140,12 +180,20 @@ fn install_system_fonts(fonts: &mut egui::FontDefinitions) {
     }
     // Semibold family: the heavy face first, then everything Proportional has
     // (icons, symbols) as fallbacks.
-    let mut chain: Vec<String> = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    let mut chain: Vec<String> = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
     if let Some(b) = load(&["seguisb.ttf"]) {
-        fonts.font_data.insert("ui-sb".into(), egui::FontData::from_owned(b).into());
+        fonts
+            .font_data
+            .insert("ui-sb".into(), egui::FontData::from_owned(b).into());
         chain.insert(0, "ui-sb".into());
     }
-    fonts.families.insert(egui::FontFamily::Name(SEMIBOLD.into()), chain);
+    fonts
+        .families
+        .insert(egui::FontFamily::Name(SEMIBOLD.into()), chain);
 }
 
 pub fn apply_preference(ctx: &egui::Context, theme: peek_store::Theme) {

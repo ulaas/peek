@@ -91,7 +91,12 @@ pub enum ParseError {
 
 impl Endpoint {
     pub fn new(protocol: Protocol, host: impl Into<String>) -> Self {
-        Self { protocol, host: host.into(), port: protocol.default_port(), username: None }
+        Self {
+            protocol,
+            host: host.into(),
+            port: protocol.default_port(),
+            username: None,
+        }
     }
 
     pub fn parse(input: &str) -> Result<Self, ParseError> {
@@ -102,7 +107,10 @@ impl Endpoint {
 
         let mut protocol = None;
         if let Some((scheme, rest)) = s.split_once("://") {
-            protocol = Some(Protocol::from_scheme(scheme).ok_or_else(|| ParseError::UnknownScheme(scheme.into()))?);
+            protocol = Some(
+                Protocol::from_scheme(scheme)
+                    .ok_or_else(|| ParseError::UnknownScheme(scheme.into()))?,
+            );
             s = rest;
         }
         s = s.trim_end_matches('/');
@@ -132,11 +140,15 @@ impl Endpoint {
         }
 
         let port = match port_str {
-            Some(p) if !p.is_empty() => Some(p.parse::<u16>().map_err(|_| ParseError::BadPort(p.into()))?),
+            Some(p) if !p.is_empty() => Some(
+                p.parse::<u16>()
+                    .map_err(|_| ParseError::BadPort(p.into()))?,
+            ),
             _ => None,
         };
 
-        let protocol = protocol.unwrap_or_else(|| port.map(Protocol::guess_from_port).unwrap_or_default());
+        let protocol =
+            protocol.unwrap_or_else(|| port.map(Protocol::guess_from_port).unwrap_or_default());
         let port = match (protocol, port) {
             // VNC display numbers: host:1 means port 5901.
             (Protocol::Vnc, Some(p)) if p < 100 => 5900 + p,
@@ -144,12 +156,21 @@ impl Endpoint {
             (proto, None) => proto.default_port(),
         };
 
-        Ok(Self { protocol, host: host.to_string(), port, username })
+        Ok(Self {
+            protocol,
+            host: host.to_string(),
+            port,
+            username,
+        })
     }
 
     /// `host:port` suitable for a socket connect.
     pub fn socket_addr(&self) -> String {
-        if self.host.contains(':') { format!("[{}]:{}", self.host, self.port) } else { format!("{}:{}", self.host, self.port) }
+        if self.host.contains(':') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
     }
 }
 
@@ -160,7 +181,11 @@ impl fmt::Display for Endpoint {
             write!(f, "{u}@")?;
         }
         if self.port == self.protocol.default_port() {
-            if self.host.contains(':') { write!(f, "[{}]", self.host) } else { f.write_str(&self.host) }
+            if self.host.contains(':') {
+                write!(f, "[{}]", self.host)
+            } else {
+                f.write_str(&self.host)
+            }
         } else {
             f.write_str(&self.socket_addr())
         }
@@ -205,7 +230,10 @@ mod tests {
     #[test]
     fn microsoft_account_user() {
         let e = p("MicrosoftAccount\\you@hotmail.com@pc.local");
-        assert_eq!(e.username.as_deref(), Some("MicrosoftAccount\\you@hotmail.com"));
+        assert_eq!(
+            e.username.as_deref(),
+            Some("MicrosoftAccount\\you@hotmail.com")
+        );
         assert_eq!((e.host.as_str(), e.port), ("pc.local", 3389));
         assert_eq!(p(&e.to_string()), e);
     }
@@ -220,7 +248,13 @@ mod tests {
     #[test]
     fn errors() {
         assert_eq!(Endpoint::parse("  "), Err(ParseError::Empty));
-        assert!(matches!(Endpoint::parse("ftp://x"), Err(ParseError::UnknownScheme(_))));
-        assert!(matches!(Endpoint::parse("x:99999"), Err(ParseError::BadPort(_))));
+        assert!(matches!(
+            Endpoint::parse("ftp://x"),
+            Err(ParseError::UnknownScheme(_))
+        ));
+        assert!(matches!(
+            Endpoint::parse("x:99999"),
+            Err(ParseError::BadPort(_))
+        ));
     }
 }

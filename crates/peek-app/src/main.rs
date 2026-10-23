@@ -13,7 +13,10 @@ mod view;
 mod widgets;
 
 fn main() -> eframe::Result {
-    if std::env::args().nth(1).is_some_and(|a| a == "--version" || a == "-V") {
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|a| a == "--version" || a == "-V")
+    {
         println!("{}", logo::version_line());
         return Ok(());
     }
@@ -21,7 +24,10 @@ fn main() -> eframe::Result {
     // Rendering defaults: DX12 on Windows (no third-party Vulkan overlay
     // layers), and the power-saving GPU, which is plenty for a desktop
     // stream. Both can be overridden with the usual wgpu env vars.
-    for (key, value) in [("WGPU_POWER_PREF", "low"), ("WGPU_BACKEND", if cfg!(windows) { "dx12" } else { "" })] {
+    for (key, value) in [
+        ("WGPU_POWER_PREF", "low"),
+        ("WGPU_BACKEND", if cfg!(windows) { "dx12" } else { "" }),
+    ] {
         if !value.is_empty() && std::env::var_os(key).is_none() {
             // SAFETY: still single-threaded; nothing reads the environment concurrently.
             unsafe { std::env::set_var(key, value) };
@@ -44,9 +50,18 @@ fn main() -> eframe::Result {
         use tracing_subscriber::fmt::writer::MakeWriterExt;
         use tracing_subscriber::layer::SubscriberExt;
         use tracing_subscriber::util::SubscriberInitExt;
-        let console = tracing_subscriber::fmt::layer().with_writer(std::io::stderr.with_max_level(tracing::Level::TRACE));
-        let file = log_file.map(|f| tracing_subscriber::fmt::layer().with_ansi(false).with_writer(std::sync::Mutex::new(f)));
-        tracing_subscriber::registry().with(filter()).with(console).with(file).init();
+        let console = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr.with_max_level(tracing::Level::TRACE));
+        let file = log_file.map(|f| {
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(std::sync::Mutex::new(f))
+        });
+        tracing_subscriber::registry()
+            .with(filter())
+            .with(console)
+            .with(file)
+            .init();
     }
     tracing::info!("{}", logo::version_line());
 
@@ -73,5 +88,9 @@ fn main() -> eframe::Result {
     let handle = rt.handle().clone();
     // `peek <address>` connects right away; `peek file.peekrec` plays a recording.
     let arg = std::env::args().nth(1);
-    eframe::run_native("Peek", options, Box::new(move |cc| Ok(Box::new(app::PeekApp::new(cc, handle, arg)))))
+    eframe::run_native(
+        "Peek",
+        options,
+        Box::new(move |cc| Ok(Box::new(app::PeekApp::new(cc, handle, arg)))),
+    )
 }

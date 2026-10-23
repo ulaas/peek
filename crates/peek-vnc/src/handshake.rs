@@ -59,8 +59,8 @@ pub fn vnc_auth_response(challenge: &[u8; 16], password: &[u8]) -> [u8; 16] {
     }
     let cipher = Des::new_from_slice(&key).expect("8-byte key");
     let mut out = *challenge;
-    for chunk in out.chunks_exact_mut(8) {
-        let mut block = des::cipher::Block::<Des>::try_from(&*chunk).expect("8-byte block");
+    for chunk in out.as_chunks_mut::<8>().0 {
+        let mut block = des::cipher::Block::<Des>::try_from(&chunk[..]).expect("8-byte block");
         cipher.encrypt_block(&mut block);
         chunk.copy_from_slice(&block);
     }
@@ -88,7 +88,9 @@ where
     W: AsyncWrite + Unpin,
 {
     let mut banner = [0u8; 12];
-    r.exact(&mut banner).await.context("reading server version")?;
+    r.exact(&mut banner)
+        .await
+        .context("reading server version")?;
     let version = parse_version(&banner)?;
     w.write_all(version.banner()).await?;
 
@@ -112,7 +114,9 @@ where
         } else if types.contains(&SEC_NONE) {
             SEC_NONE
         } else {
-            bail!("server requires an authentication method Peek does not support yet (offered: {types:?})");
+            bail!(
+                "server requires an authentication method Peek does not support yet (offered: {types:?})"
+            );
         };
         w.write_all(&[pick]).await?;
         pick
@@ -126,7 +130,8 @@ where
             };
             let mut challenge = [0u8; 16];
             r.exact(&mut challenge).await?;
-            w.write_all(&vnc_auth_response(&challenge, pw.as_bytes())).await?;
+            w.write_all(&vnc_auth_response(&challenge, pw.as_bytes()))
+                .await?;
         }
         other => bail!("unsupported security type {other}"),
     }
@@ -135,7 +140,11 @@ where
     if version == Version::V3_8 || sec != SEC_NONE {
         let result = r.u32().await?;
         if result != 0 {
-            let reason = if version == Version::V3_8 { read_reason(r).await } else { String::new() };
+            let reason = if version == Version::V3_8 {
+                read_reason(r).await
+            } else {
+                String::new()
+            };
             bail!(peek_core::AuthError::Rejected(reason));
         }
     }
@@ -147,7 +156,11 @@ where
     r.skip(16).await?; // server pixel format; we replace it
     let name_len = r.u32().await? as usize;
     let name = String::from_utf8_lossy(&r.vec(name_len.min(1 << 16)).await?).into_owned();
-    Ok(ServerInit { width, height, name })
+    Ok(ServerInit {
+        width,
+        height,
+        name,
+    })
 }
 
 #[cfg(test)]
@@ -167,12 +180,18 @@ mod tests {
     fn vnc_auth_des_vector() {
         // FIPS test vector: key 133457799BBCDFF1, P 0123456789ABCDEF -> C 85E813540F0AB405.
         // VNC mirrors each key byte, so pass the mirrored key as "password".
-        let key: Vec<u8> = [0x13u8, 0x34, 0x57, 0x79, 0x9B, 0xBC, 0xDF, 0xF1].iter().map(|b| b.reverse_bits()).collect();
+        let key: Vec<u8> = [0x13u8, 0x34, 0x57, 0x79, 0x9B, 0xBC, 0xDF, 0xF1]
+            .iter()
+            .map(|b| b.reverse_bits())
+            .collect();
         let mut challenge = [0u8; 16];
         challenge[..8].copy_from_slice(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
         challenge[8..].copy_from_slice(&[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
         let resp = vnc_auth_response(&challenge, &key);
-        assert_eq!(&resp[..8], &[0x85, 0xE8, 0x13, 0x54, 0x0F, 0x0A, 0xB4, 0x05]);
+        assert_eq!(
+            &resp[..8],
+            &[0x85, 0xE8, 0x13, 0x54, 0x0F, 0x0A, 0xB4, 0x05]
+        );
         assert_eq!(&resp[..8], &resp[8..]);
     }
 
@@ -200,7 +219,10 @@ mod tests {
         let (rh, mut wh) = tokio::io::split(client);
         let mut r = Reader::new(rh, None);
         let init = handshake(&mut r, &mut wh, None, true).await.unwrap();
-        assert_eq!((init.width, init.height, init.name.as_str()), (800, 600, "desk"));
+        assert_eq!(
+            (init.width, init.height, init.name.as_str()),
+            (800, 600, "desk")
+        );
         srv.await.unwrap();
     }
 }

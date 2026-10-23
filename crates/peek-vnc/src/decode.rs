@@ -36,7 +36,13 @@ pub fn px3(b: &[u8]) -> u32 {
 /// Convert wire pixels (4 bytes each) to framebuffer pixels in place.
 pub fn wire_to_pixels(bytes: &[u8], out: &mut Vec<u32>) {
     out.clear();
-    out.extend(bytes.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) | OPAQUE));
+    out.extend(
+        bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&c| u32::from_le_bytes(c) | OPAQUE),
+    );
 }
 
 /// Bounds-checked cursor over a decompressed buffer.
@@ -52,7 +58,11 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     fn take(&mut self, n: usize) -> anyhow::Result<&'a [u8]> {
-        let end = self.p.checked_add(n).filter(|&e| e <= self.d.len()).context("truncated data")?;
+        let end = self
+            .p
+            .checked_add(n)
+            .filter(|&e| e <= self.d.len())
+            .context("truncated data")?;
         let s = &self.d[self.p..end];
         self.p = end;
         Ok(s)
@@ -71,7 +81,13 @@ impl<'a> Bytes<'a> {
 
 /// Inflate exactly `out_len` bytes (or, if `None`, everything available, up
 /// to `max` bytes) from `input` with a persistent zlib stream.
-pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, max: usize, out: &mut Vec<u8>) -> anyhow::Result<()> {
+pub fn inflate(
+    z: &mut Decompress,
+    input: &[u8],
+    out_len: Option<usize>,
+    max: usize,
+    out: &mut Vec<u8>,
+) -> anyhow::Result<()> {
     out.clear();
     let mut consumed = 0usize;
     match out_len {
@@ -82,23 +98,35 @@ pub fn inflate(z: &mut Decompress, input: &[u8], out_len: Option<usize>, max: us
         if out_len.is_some_and(|n| out.len() >= n) {
             break;
         }
-        ensure!(out.len() <= max, "compressed data expands beyond {max} bytes");
+        ensure!(
+            out.len() <= max,
+            "compressed data expands beyond {max} bytes"
+        );
         if out.len() == out.capacity() {
             out.reserve(out.len().max(4096).min(max + 1 - out.len()));
         }
         let (bi, bo) = (z.total_in(), z.total_out());
-        let status = z.decompress_vec(&input[consumed..], out, FlushDecompress::Sync).context("zlib error")?;
+        let status = z
+            .decompress_vec(&input[consumed..], out, FlushDecompress::Sync)
+            .context("zlib error")?;
         consumed += (z.total_in() - bi) as usize;
         let stalled = z.total_in() == bi && z.total_out() == bo;
         let output_room_left = out.len() < out.capacity();
         // Done when the stream ends, or all input is used and zlib stopped
         // for lack of input rather than lack of output space.
-        if status == Status::StreamEnd || (consumed >= input.len() && output_room_left) || (stalled && output_room_left) {
+        if status == Status::StreamEnd
+            || (consumed >= input.len() && output_room_left)
+            || (stalled && output_room_left)
+        {
             break;
         }
     }
     if let Some(n) = out_len {
-        ensure!(out.len() == n, "zlib stream produced {} bytes, expected {n}", out.len());
+        ensure!(
+            out.len() == n,
+            "zlib stream produced {} bytes, expected {n}",
+            out.len()
+        );
     }
     Ok(())
 }
@@ -165,8 +193,14 @@ pub fn zrle(data: &[u8], w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Result<(
                             (b.cpixel()?, rle_len(&mut b)?)
                         } else {
                             let idx = b.u8()?;
-                            let p = *palette.get((idx & 0x7f) as usize).context("bad palette index")?;
-                            if idx & 0x80 != 0 { (p, rle_len(&mut b)?) } else { (p, 1) }
+                            let p = *palette
+                                .get((idx & 0x7f) as usize)
+                                .context("bad palette index")?;
+                            if idx & 0x80 != 0 {
+                                (p, rle_len(&mut b)?)
+                            } else {
+                                (p, 1)
+                            }
                         };
                         ensure!(i + run <= total, "ZRLE run overflows tile");
                         for k in i..i + run {
@@ -194,7 +228,12 @@ fn rle_len(b: &mut Bytes<'_>) -> anyhow::Result<usize> {
 }
 
 /// Hextile reads tile by tile from the stream; there is no length prefix.
-pub async fn hextile<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Result<()> {
+pub async fn hextile<R: AsyncRead + Unpin>(
+    r: &mut Reader<R>,
+    w: u32,
+    h: u32,
+    out: &mut Vec<u32>,
+) -> anyhow::Result<()> {
     const RAW: u8 = 1;
     const BG: u8 = 2;
     const FG: u8 = 4;
@@ -240,7 +279,11 @@ pub async fn hextile<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, ou
             let per = if mask & COLOURED != 0 { 6 } else { 2 };
             r.read_into(n * per, &mut buf).await?;
             for s in buf.chunks_exact(per) {
-                let (color, xy, wh) = if per == 6 { (px4(s), s[4], s[5]) } else { (fg, s[0], s[1]) };
+                let (color, xy, wh) = if per == 6 {
+                    (px4(s), s[4], s[5])
+                } else {
+                    (fg, s[0], s[1])
+                };
                 let (sx, sy) = ((xy >> 4) as usize, (xy & 15) as usize);
                 let (sw, sh) = ((wh >> 4) as usize + 1, (wh & 15) as usize + 1);
                 for y in sy..(sy + sh).min(th) {
@@ -253,7 +296,12 @@ pub async fn hextile<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, ou
     Ok(())
 }
 
-pub async fn rre<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Result<()> {
+pub async fn rre<R: AsyncRead + Unpin>(
+    r: &mut Reader<R>,
+    w: u32,
+    h: u32,
+    out: &mut Vec<u32>,
+) -> anyhow::Result<()> {
     let (w, h) = (w as usize, h as usize);
     let n = r.u32().await? as usize;
     // Every subrectangle covers at least one pixel.
@@ -263,8 +311,9 @@ pub async fn rre<R: AsyncRead + Unpin>(r: &mut Reader<R>, w: u32, h: u32, out: &
     out.clear();
     out.resize(w * h, px4(&px));
     let mut buf = Vec::new();
-    r.read_into(n.checked_mul(12).context("RRE too large")?, &mut buf).await?;
-    for s in buf.chunks_exact(12) {
+    r.read_into(n.checked_mul(12).context("RRE too large")?, &mut buf)
+        .await?;
+    for s in buf.as_chunks::<12>().0 {
         let color = px4(s);
         let be = |i: usize| u16::from_be_bytes([s[i], s[i + 1]]) as usize;
         let (sx, sy, sw, sh) = (be(4), be(6), be(8), be(10));
@@ -349,10 +398,14 @@ impl Tight {
                 ncolors = r.u8().await? as usize + 1;
                 let mut p = vec![0u8; ncolors * 3];
                 r.exact(&mut p).await?;
-                for (i, c) in p.chunks_exact(3).enumerate() {
+                for (i, c) in p.as_chunks::<3>().0.iter().enumerate() {
                     palette[i] = px3(c);
                 }
-                if ncolors == 2 { wu.div_ceil(8) * hu } else { wu * hu }
+                if ncolors == 2 {
+                    wu.div_ceil(8) * hu
+                } else {
+                    wu * hu
+                }
             }
             f => bail!("unknown Tight filter {f}"),
         };
@@ -362,13 +415,19 @@ impl Tight {
         } else {
             let len = r.compact_len().await?;
             r.read_into(len, &mut self.zbuf).await?;
-            inflate(&mut self.zs[stream], &self.zbuf, Some(raw_len), raw_len, &mut self.raw)?;
+            inflate(
+                &mut self.zs[stream],
+                &self.zbuf,
+                Some(raw_len),
+                raw_len,
+                &mut self.raw,
+            )?;
         }
 
         let data = &self.raw;
         out.reserve(wu * hu);
         match filter {
-            0 => out.extend(data.chunks_exact(3).map(px3)),
+            0 => out.extend(data.as_chunks::<3>().0.iter().map(|c| px3(c))),
             1 if ncolors == 2 => {
                 let stride = wu.div_ceil(8);
                 for y in 0..hu {
@@ -392,14 +451,22 @@ fn gradient(data: &[u8], w: usize, h: usize, out: &mut Vec<u32>) {
     for y in 0..h {
         for x in 0..w {
             for c in 0..3 {
-                let left = if x > 0 { cur[(x - 1) * 3 + c] as i32 } else { 0 };
+                let left = if x > 0 {
+                    cur[(x - 1) * 3 + c] as i32
+                } else {
+                    0
+                };
                 let up = prev[x * 3 + c] as i32;
-                let ul = if x > 0 { prev[(x - 1) * 3 + c] as i32 } else { 0 };
+                let ul = if x > 0 {
+                    prev[(x - 1) * 3 + c] as i32
+                } else {
+                    0
+                };
                 let pred = (left + up - ul).clamp(0, 255);
                 cur[x * 3 + c] = (pred as u8).wrapping_add(data[(y * w + x) * 3 + c]);
             }
         }
-        out.extend(cur.chunks_exact(3).map(px3));
+        out.extend(cur.as_chunks::<3>().0.iter().map(|c| px3(c)));
         std::mem::swap(&mut prev, &mut cur);
     }
 }
@@ -413,9 +480,17 @@ fn decode_jpeg(data: &[u8], w: u32, h: u32, out: &mut Vec<u32>) -> anyhow::Resul
     let mut dec = JpegDecoder::new_with_options(std::io::Cursor::new(data), opts);
     let rgba = dec.decode().map_err(|e| anyhow::anyhow!("JPEG: {e:?}"))?;
     let info = dec.info().context("JPEG without header")?;
-    ensure!(info.width as u32 == w && info.height as u32 == h, "JPEG size mismatch");
+    ensure!(
+        info.width as u32 == w && info.height as u32 == h,
+        "JPEG size mismatch"
+    );
     out.clear();
-    out.extend(rgba.chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], 0xFF])));
+    out.extend(
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], 0xFF])),
+    );
     Ok(())
 }
 
@@ -442,7 +517,10 @@ mod tests {
         let d = [2, 1, 1, 1, 9, 9, 9, 0b0110_0000];
         let mut out = vec![];
         zrle(&d, 4, 1, &mut out).unwrap();
-        assert_eq!(out, vec![rgb(1, 1, 1), rgb(9, 9, 9), rgb(9, 9, 9), rgb(1, 1, 1)]);
+        assert_eq!(
+            out,
+            vec![rgb(1, 1, 1), rgb(9, 9, 9), rgb(9, 9, 9), rgb(1, 1, 1)]
+        );
     }
 
     #[test]
@@ -466,7 +544,10 @@ mod tests {
         use flate2::{Compress, Compression, FlushCompress};
         let mut c = Compress::new(Compression::default(), true);
         let mut z = Decompress::new(true);
-        for msg in [&b"hello hello hello"[..], &b"second message on same stream"[..]] {
+        for msg in [
+            &b"hello hello hello"[..],
+            &b"second message on same stream"[..],
+        ] {
             let mut comp = Vec::with_capacity(256);
             c.compress_vec(msg, &mut comp, FlushCompress::Sync).unwrap();
             let mut out = vec![];
@@ -505,7 +586,9 @@ mod tests {
     /// Random input must produce errors, never panics or runaway allocations.
     #[test]
     fn decoders_survive_garbage() {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let mut seed = 0x9E37_79B9_7F4A_7C15u64;
         let mut out = Vec::new();
         for i in 0..3000 {

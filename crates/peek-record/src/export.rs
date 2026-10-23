@@ -10,7 +10,9 @@
 use crate::{AUDIO_CHANNELS, AUDIO_RATE, Player};
 use anyhow::{Context, bail, ensure};
 use openh264::OpenH264API;
-use openh264::encoder::{BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, RateControlMode, UsageType};
+use openh264::encoder::{
+    BitRate, Encoder, EncoderConfig, FrameRate, IntraFramePeriod, RateControlMode, UsageType,
+};
 use openh264::formats::{RgbaSliceU8, YUVBuffer};
 use std::fs::File;
 use std::io::BufWriter;
@@ -31,7 +33,11 @@ pub struct Mp4Options {
 
 impl Default for Mp4Options {
     fn default() -> Self {
-        Self { fps: 30, bitrate_bps: None, draw_pointer: true }
+        Self {
+            fps: 30,
+            bitrate_bps: None,
+            draw_pointer: true,
+        }
     }
 }
 
@@ -90,7 +96,8 @@ impl AudioTrack {
     fn pad_to(&mut self, samples: u64) {
         if samples > self.timeline {
             let n = (samples - self.timeline) as usize;
-            self.pcm.extend(std::iter::repeat_n(0, n * AUDIO_CHANNELS as usize));
+            self.pcm
+                .extend(std::iter::repeat_n(0, n * AUDIO_CHANNELS as usize));
             self.timeline = samples;
         }
     }
@@ -104,17 +111,24 @@ impl AudioTrack {
         }
         let mut buf = vec![0i16; 5760 * AUDIO_CHANNELS as usize];
         if let Ok(n) = self.decoder.decode(packet, &mut buf, false) {
-            self.pcm.extend_from_slice(&buf[..n * AUDIO_CHANNELS as usize]);
+            self.pcm
+                .extend_from_slice(&buf[..n * AUDIO_CHANNELS as usize]);
             self.timeline += n as u64;
         }
     }
 
     /// Encode every full frame and write it.
-    fn drain<W: std::io::Write + std::io::Seek>(&mut self, writer: &mut mp4::Mp4Writer<W>) -> anyhow::Result<()> {
+    fn drain<W: std::io::Write + std::io::Seek>(
+        &mut self,
+        writer: &mut mp4::Mp4Writer<W>,
+    ) -> anyhow::Result<()> {
         let frame = AAC_FRAME * AUDIO_CHANNELS as usize;
         let mut out = vec![0u8; 8192];
         while self.pcm.len() >= frame {
-            let info = self.encoder.encode(&self.pcm[..frame], &mut out).map_err(|e| anyhow::anyhow!("AAC encoder: {e:?}"))?;
+            let info = self
+                .encoder
+                .encode(&self.pcm[..frame], &mut out)
+                .map_err(|e| anyhow::anyhow!("AAC encoder: {e:?}"))?;
             self.pcm.drain(..info.input_consumed.min(frame).max(frame));
             if info.output_size == 0 {
                 continue; // encoder still filling its look-ahead
@@ -149,18 +163,26 @@ impl AudioTrack {
     }
 
     /// Fill to the end of the video, then push the encoder's look-ahead out.
-    fn finish<W: std::io::Write + std::io::Seek>(&mut self, duration_ms: u32, writer: &mut mp4::Mp4Writer<W>) -> anyhow::Result<()> {
+    fn finish<W: std::io::Write + std::io::Seek>(
+        &mut self,
+        duration_ms: u32,
+        writer: &mut mp4::Mp4Writer<W>,
+    ) -> anyhow::Result<()> {
         self.pad_to(duration_ms as u64 * AUDIO_RATE as u64 / 1000);
         let rest = self.pcm.len() % (AAC_FRAME * AUDIO_CHANNELS as usize);
         if rest > 0 {
-            self.pcm.extend(std::iter::repeat_n(0, AAC_FRAME * AUDIO_CHANNELS as usize - rest));
+            self.pcm.extend(std::iter::repeat_n(
+                0,
+                AAC_FRAME * AUDIO_CHANNELS as usize - rest,
+            ));
         }
         self.drain(writer)?;
         // The encoder holds back about two frames; silence pushes them out.
         let target = self.timeline.div_ceil(AAC_FRAME as u64);
         let mut guard = 0;
         while self.frames_written < target && guard < 4 {
-            self.pcm.extend(std::iter::repeat_n(0, AAC_FRAME * AUDIO_CHANNELS as usize));
+            self.pcm
+                .extend(std::iter::repeat_n(0, AAC_FRAME * AUDIO_CHANNELS as usize));
             self.drain(writer)?;
             guard += 1;
         }
@@ -170,7 +192,12 @@ impl AudioTrack {
 
 /// Export `input` to `output`. `progress` gets 0.0..=1.0 and returns false
 /// to cancel; a cancelled or failed export removes the partial file.
-pub fn export_mp4(input: &Path, output: &Path, opts: Mp4Options, progress: impl FnMut(f32) -> bool) -> anyhow::Result<Mp4Summary> {
+pub fn export_mp4(
+    input: &Path,
+    output: &Path,
+    opts: Mp4Options,
+    progress: impl FnMut(f32) -> bool,
+) -> anyhow::Result<Mp4Summary> {
     let result = export_inner(input, output, opts, progress);
     if result.is_err() {
         let _ = std::fs::remove_file(output);
@@ -178,11 +205,19 @@ pub fn export_mp4(input: &Path, output: &Path, opts: Mp4Options, progress: impl 
     result
 }
 
-fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: impl FnMut(f32) -> bool) -> anyhow::Result<Mp4Summary> {
+fn export_inner(
+    input: &Path,
+    output: &Path,
+    opts: Mp4Options,
+    mut progress: impl FnMut(f32) -> bool,
+) -> anyhow::Result<Mp4Summary> {
     let mut player = Player::open(input).context("cannot open the recording")?;
     let duration = player.duration_ms.max(1);
     // H.264 4:2:0 needs even dimensions; the first frame decides the size.
-    let (w, h) = ((player.frame.width() & !1).max(16), (player.frame.height() & !1).max(16));
+    let (w, h) = (
+        (player.frame.width() & !1).max(16),
+        (player.frame.height() & !1).max(16),
+    );
     let fps = opts.fps.clamp(1, 60);
     let step = 1000 / fps;
     let bitrate = opts.bitrate_bps.unwrap_or_else(|| default_bitrate(w, h));
@@ -198,13 +233,19 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
         .background_detection(false)
         // A keyframe at least every 10 s of video keeps seeking quick.
         .intra_frame_period(IntraFramePeriod::from_num_frames(fps * 10));
-    let mut encoder = Encoder::with_api_config(OpenH264API::from_source(), config).context("cannot start the H.264 encoder")?;
+    let mut encoder = Encoder::with_api_config(OpenH264API::from_source(), config)
+        .context("cannot start the H.264 encoder")?;
 
-    let file = BufWriter::new(File::create(output).with_context(|| format!("cannot create {}", output.display()))?);
+    let file = BufWriter::new(
+        File::create(output).with_context(|| format!("cannot create {}", output.display()))?,
+    );
     let mp4_config = mp4::Mp4Config {
         major_brand: "isom".parse().expect("fourcc"),
         minor_version: 512,
-        compatible_brands: ["isom", "iso2", "avc1", "mp41"].iter().map(|b| b.parse().expect("fourcc")).collect(),
+        compatible_brands: ["isom", "iso2", "avc1", "mp41"]
+            .iter()
+            .map(|b| b.parse().expect("fourcc"))
+            .collect(),
         timescale: 1000,
     };
     let mut writer = mp4::Mp4Writer::write_start(file, &mp4_config)?;
@@ -225,15 +266,24 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
 
     while t <= duration {
         let damage = player.advance_to(t)?;
-        let pointer = if opts.draw_pointer { player.pointer } else { None };
-        let changed = first || !damage.is_empty() || pointer != last_pointer || t - last_encoded >= MAX_FRAME_MS;
+        let pointer = if opts.draw_pointer {
+            player.pointer
+        } else {
+            None
+        };
+        let changed = first
+            || !damage.is_empty()
+            || pointer != last_pointer
+            || t - last_encoded >= MAX_FRAME_MS;
         if changed {
             compose(&player, w, h, pointer, &mut canvas);
             yuv.read_rgba8(RgbaSliceU8::new(&canvas, (w as usize, h as usize)));
             let bits = encoder.encode_at(&yuv, openh264::Timestamp::from_millis(t as u64))?;
             let (sample, sync, sps, pps) = to_avcc(&bits);
             if !track_added {
-                let (Some(sps), Some(pps)) = (sps, pps) else { bail!("the encoder produced no stream headers") };
+                let (Some(sps), Some(pps)) = (sps, pps) else {
+                    bail!("the encoder produced no stream headers")
+                };
                 writer.add_track(&mp4::TrackConfig {
                     track_type: mp4::TrackType::Video,
                     timescale: 1000,
@@ -269,10 +319,8 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
             }
             a.drain(&mut writer)?;
         }
-        if changed {
-            if !progress(t as f32 / duration as f32) {
-                bail!("export cancelled");
-            }
+        if changed && !progress(t as f32 / duration as f32) {
+            bail!("export cancelled");
         }
         if t == duration {
             break;
@@ -280,7 +328,13 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
         t = (t + step).min(duration);
     }
     if let Some((start, bytes, is_sync)) = pending.take() {
-        write_sample(&mut writer, start, (duration - start).max(step), bytes, is_sync)?;
+        write_sample(
+            &mut writer,
+            start,
+            (duration - start).max(step),
+            bytes,
+            is_sync,
+        )?;
     }
     if let Some(a) = audio.as_mut() {
         a.finish(duration, &mut writer)?;
@@ -292,7 +346,14 @@ fn export_inner(input: &Path, output: &Path, opts: Mp4Options, mut progress: imp
     drop(file);
     progress(1.0);
     let bytes = std::fs::metadata(output).map(|m| m.len()).unwrap_or(0);
-    Ok(Mp4Summary { width: w, height: h, frames, duration_ms: duration, bytes, audio: audio.is_some_and(|a| a.added) })
+    Ok(Mp4Summary {
+        width: w,
+        height: h,
+        frames,
+        duration_ms: duration,
+        bytes,
+        audio: audio.is_some_and(|a| a.added),
+    })
 }
 
 /// About 0.08 bits per pixel at 30 fps: 1080p lands near 5 Mbit/s. Screen
@@ -301,10 +362,22 @@ fn default_bitrate(w: u32, h: u32) -> u32 {
     ((w as u64 * h as u64 * 30 * 8 / 100) as u32).clamp(1_000_000, 20_000_000)
 }
 
-fn write_sample(w: &mut mp4::Mp4Writer<BufWriter<File>>, start: u32, duration: u32, bytes: Vec<u8>, is_sync: bool) -> anyhow::Result<()> {
+fn write_sample(
+    w: &mut mp4::Mp4Writer<BufWriter<File>>,
+    start: u32,
+    duration: u32,
+    bytes: Vec<u8>,
+    is_sync: bool,
+) -> anyhow::Result<()> {
     w.write_sample(
         VIDEO_TRACK,
-        &mp4::Mp4Sample { start_time: start as u64, duration: duration.max(1), rendering_offset: 0, is_sync, bytes: bytes.into() },
+        &mp4::Mp4Sample {
+            start_time: start as u64,
+            duration: duration.max(1),
+            rendering_offset: 0,
+            is_sync,
+            bytes: bytes.into(),
+        },
     )?;
     Ok(())
 }
@@ -369,13 +442,18 @@ fn draw_arrow(canvas: &mut [u8], w: u32, h: u32, x: i32, y: i32) {
 
 /// Annex B NAL units (start codes) → one AVCC sample (4-byte lengths), with
 /// SPS and PPS split out for the track header.
-fn to_avcc(bits: &openh264::encoder::EncodedBitStream<'_>) -> (Vec<u8>, bool, Option<Vec<u8>>, Option<Vec<u8>>) {
+#[allow(clippy::type_complexity)] // (sample, sync, sps, pps), destructured at the one call site
+fn to_avcc(
+    bits: &openh264::encoder::EncodedBitStream<'_>,
+) -> (Vec<u8>, bool, Option<Vec<u8>>, Option<Vec<u8>>) {
     let mut sample = Vec::new();
     let (mut sync, mut sps, mut pps) = (false, None, None);
     for l in 0..bits.num_layers() {
         let Some(layer) = bits.layer(l) else { continue };
         for n in 0..layer.nal_count() {
-            let Some(nal) = layer.nal_unit(n) else { continue };
+            let Some(nal) = layer.nal_unit(n) else {
+                continue;
+            };
             let body = strip_start_code(nal);
             let Some(&head) = body.first() else { continue };
             match head & 0x1F {
@@ -420,8 +498,18 @@ mod tests {
         let tap = r.audio_tap().unwrap();
         for i in 0..60u32 {
             // 1.2 s: 20 ms chunks of a 440 Hz tone at 48 kHz.
-            let samples: Vec<i16> = (0..960 * 2).map(|j| ((((i * 960) + j / 2) as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin() * 12000.0) as i16).collect();
-            tap.send(peek_core::AudioChunk { rate: 48_000, channels: 2, samples }).unwrap();
+            let samples: Vec<i16> = (0..960 * 2)
+                .map(|j| {
+                    ((((i * 960) + j / 2) as f32 * 440.0 * std::f32::consts::TAU / 48_000.0).sin()
+                        * 12000.0) as i16
+                })
+                .collect();
+            tap.send(peek_core::AudioChunk {
+                rate: 48_000,
+                channels: 2,
+                samples,
+            })
+            .unwrap();
             if i % 10 == 0 {
                 r.region(Rect::new(i, 0, 4, 4), vec![0xFF; 64]);
             }
@@ -439,7 +527,11 @@ mod tests {
         assert_eq!(track.media_type().unwrap(), mp4::MediaType::AAC);
         let frames = track.sample_count();
         let audio_ms = frames as u64 * 1024 * 1000 / 48_000;
-        assert!(audio_ms + 50 >= s.duration_ms as u64 && audio_ms <= s.duration_ms as u64 + 120, "audio {audio_ms} ms, video {} ms", s.duration_ms);
+        assert!(
+            audio_ms + 50 >= s.duration_ms as u64 && audio_ms <= s.duration_ms as u64 + 120,
+            "audio {audio_ms} ms, video {} ms",
+            s.duration_ms
+        );
 
         // Decode the middle of the track with FDK's decoder: it must be the tone, not silence.
         let mut dec = fdk_aac::dec::Decoder::new(fdk_aac::dec::Transport::Raw);
@@ -498,7 +590,10 @@ mod tests {
         assert_eq!((track.width(), track.height()), (320, 200));
         assert_eq!(track.sample_count(), s.frames);
         assert!(mp4.duration().as_millis() >= 1000, "{:?}", mp4.duration());
-        assert!(!s.audio && mp4.tracks().len() == 1, "no sound recorded, so no audio track");
+        assert!(
+            !s.audio && mp4.tracks().len() == 1,
+            "no sound recorded, so no audio track"
+        );
 
         // Cancelling removes the partial file.
         assert!(export_mp4(&rec, &out, Mp4Options::default(), |_| false).is_err());

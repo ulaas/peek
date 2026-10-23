@@ -14,7 +14,10 @@ pub fn rgba(size: u32) -> Vec<u8> {
         for x in 0..size {
             let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
             // Rounded square.
-            let q = ((px - c).abs() - (c - 0.22 * s), (py - c).abs() - (c - 0.22 * s));
+            let q = (
+                (px - c).abs() - (c - 0.22 * s),
+                (py - c).abs() - (c - 0.22 * s),
+            );
             let outside = (q.0.max(0.0).powi(2) + q.1.max(0.0).powi(2)).sqrt();
             let d_tile = outside + q.0.max(q.1).min(0.0) - 0.22 * s + 0.5;
             let a_tile = (0.5 - d_tile).clamp(0.0, 1.0);
@@ -31,15 +34,30 @@ pub fn rgba(size: u32) -> Vec<u8> {
             col = blend(col, [255.0, 255.0, 255.0], a_eye);
             let dp = ((px - pupil_c.0).powi(2) + (py - pupil_c.1).powi(2)).sqrt() - pupil_r;
             col = blend(col, [22.0, 44.0, 92.0], (0.5 - dp).clamp(0.0, 1.0) * a_eye);
-            let dh = ((px - pupil_c.0 - 0.04 * s).powi(2) + (py - pupil_c.1 + 0.04 * s).powi(2)).sqrt() - 0.035 * s;
-            col = blend(col, [255.0, 255.0, 255.0], (0.5 - dh).clamp(0.0, 1.0) * a_eye);
+            let dh = ((px - pupil_c.0 - 0.04 * s).powi(2) + (py - pupil_c.1 + 0.04 * s).powi(2))
+                .sqrt()
+                - 0.035 * s;
+            col = blend(
+                col,
+                [255.0, 255.0, 255.0],
+                (0.5 - dh).clamp(0.0, 1.0) * a_eye,
+            );
             let i = ((y * size + x) * 4) as usize;
-            out[i..i + 4].copy_from_slice(&[col[0] as u8, col[1] as u8, col[2] as u8, (a_tile * 255.0) as u8]);
+            out[i..i + 4].copy_from_slice(&[
+                col[0] as u8,
+                col[1] as u8,
+                col[2] as u8,
+                (a_tile * 255.0) as u8,
+            ]);
         }
     }
     out
 }
 
 fn blend(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+    [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    ]
 }

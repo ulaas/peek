@@ -102,7 +102,10 @@ impl ConnectionSpeed {
         };
         match self {
             ConnectionSpeed::Lan | ConnectionSpeed::Custom => all,
-            ConnectionSpeed::Wan => Experience { compression: true, ..all },
+            ConnectionSpeed::Wan => Experience {
+                compression: true,
+                ..all
+            },
             ConnectionSpeed::HighSpeedBroadband => Experience {
                 font_smoothing: true,
                 desktop_composition: true,
@@ -110,15 +113,28 @@ impl ConnectionSpeed {
                 visual_styles: true,
                 ..none
             },
-            ConnectionSpeed::Satellite => Experience { desktop_composition: true, visual_styles: true, ..none },
-            ConnectionSpeed::LowSpeedBroadband => Experience { visual_styles: true, ..none },
-            ConnectionSpeed::Modem => Experience { color_depth: 16, ..none },
+            ConnectionSpeed::Satellite => Experience {
+                desktop_composition: true,
+                visual_styles: true,
+                ..none
+            },
+            ConnectionSpeed::LowSpeedBroadband => Experience {
+                visual_styles: true,
+                ..none
+            },
+            ConnectionSpeed::Modem => Experience {
+                color_depth: 16,
+                ..none
+            },
         }
     }
 
     /// The preset whose settings equal `e`, or `Custom`.
     pub fn matching(e: &Experience) -> ConnectionSpeed {
-        Self::PRESETS.into_iter().find(|p| p.experience() == *e).unwrap_or(ConnectionSpeed::Custom)
+        Self::PRESETS
+            .into_iter()
+            .find(|p| p.experience() == *e)
+            .unwrap_or(ConnectionSpeed::Custom)
     }
 }
 
@@ -131,19 +147,32 @@ mod tests {
         for p in ConnectionSpeed::PRESETS {
             assert_eq!(ConnectionSpeed::matching(&p.experience()), p, "{p:?}");
         }
-        let odd = Experience { wallpaper: false, ..ConnectionSpeed::Lan.experience() };
+        let odd = Experience {
+            wallpaper: false,
+            ..ConnectionSpeed::Lan.experience()
+        };
         assert_eq!(ConnectionSpeed::matching(&odd), ConnectionSpeed::Custom);
     }
 
     #[test]
     fn slower_presets_draw_less() {
         let on = |e: Experience| {
-            [e.wallpaper, e.font_smoothing, e.desktop_composition, e.window_drag, e.menu_animations, e.visual_styles]
-                .iter()
-                .filter(|b| **b)
-                .count()
+            [
+                e.wallpaper,
+                e.font_smoothing,
+                e.desktop_composition,
+                e.window_drag,
+                e.menu_animations,
+                e.visual_styles,
+            ]
+            .iter()
+            .filter(|b| **b)
+            .count()
         };
-        let counts: Vec<usize> = ConnectionSpeed::PRESETS.iter().map(|p| on(p.experience())).collect();
+        let counts: Vec<usize> = ConnectionSpeed::PRESETS
+            .iter()
+            .map(|p| on(p.experience()))
+            .collect();
         assert!(counts.windows(2).all(|w| w[0] >= w[1]), "{counts:?}");
     }
 }

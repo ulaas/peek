@@ -28,11 +28,11 @@ pub mod export;
 
 use anyhow::{Context, bail, ensure};
 use peek_core::{AudioChunk, Framebuffer, Rect};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -56,10 +56,25 @@ const SEGMENT_BYTES: usize = 48 << 20;
 const KEYFRAME_EVERY: Duration = Duration::from_secs(10);
 
 enum Msg {
-    Region { at: Instant, rect: Rect, rgba: Vec<u8> },
-    Resize { at: Instant, w: u32, h: u32 },
-    Pointer { at: Instant, x: u32, y: u32 },
-    Audio { ts: u32, packet: Vec<u8> },
+    Region {
+        at: Instant,
+        rect: Rect,
+        rgba: Vec<u8>,
+    },
+    Resize {
+        at: Instant,
+        w: u32,
+        h: u32,
+    },
+    Pointer {
+        at: Instant,
+        x: u32,
+        y: u32,
+    },
+    Audio {
+        ts: u32,
+        packet: Vec<u8>,
+    },
 }
 
 /// Handle for an in-progress recording. Cheap to feed: data is copied into a
@@ -83,12 +98,18 @@ pub struct RecordingInfo {
 
 impl Recorder {
     /// Start recording. `initial` is the current screen; it becomes the first keyframe.
-    pub fn start(path: impl Into<PathBuf>, metadata: &[(&str, &str)], initial: &Framebuffer) -> anyhow::Result<Self> {
+    pub fn start(
+        path: impl Into<PathBuf>,
+        metadata: &[(&str, &str)],
+        initial: &Framebuffer,
+    ) -> anyhow::Result<Self> {
         let path = path.into();
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let mut file = BufWriter::new(File::create(&path).with_context(|| format!("cannot create {}", path.display()))?);
+        let mut file = BufWriter::new(
+            File::create(&path).with_context(|| format!("cannot create {}", path.display()))?,
+        );
         let meta: String = metadata
             .iter()
             .map(|(k, v)| format!("{}={}\n", k.replace(['=', '\n'], "_"), v.replace('\n', " ")))
@@ -104,7 +125,14 @@ impl Recorder {
         let thread = std::thread::Builder::new()
             .name("peek-recorder".into())
             .spawn(move || writer_thread(file, rx, shadow, started, thread_path))?;
-        Ok(Self { tx: Some(tx), thread: Some(thread), path, started, audio_stop: Arc::new(AtomicBool::new(false)), audio_thread: None })
+        Ok(Self {
+            tx: Some(tx),
+            thread: Some(thread),
+            path,
+            started,
+            audio_stop: Arc::new(AtomicBool::new(false)),
+            audio_thread: None,
+        })
     }
 
     pub fn path(&self) -> &Path {
@@ -118,23 +146,41 @@ impl Recorder {
     /// Record a changed region; `rgba` holds `rect.w * rect.h` pixels.
     pub fn region(&self, rect: Rect, rgba: Vec<u8>) {
         debug_assert_eq!(rgba.len(), rect.area() as usize * 4);
-        self.send(Msg::Region { at: Instant::now(), rect, rgba });
+        self.send(Msg::Region {
+            at: Instant::now(),
+            rect,
+            rgba,
+        });
     }
 
     pub fn resize(&self, w: u32, h: u32) {
-        self.send(Msg::Resize { at: Instant::now(), w, h });
+        self.send(Msg::Resize {
+            at: Instant::now(),
+            w,
+            h,
+        });
     }
 
     pub fn pointer(&self, x: u32, y: u32) {
-        self.send(Msg::Pointer { at: Instant::now(), x, y });
+        self.send(Msg::Pointer {
+            at: Instant::now(),
+            x,
+            y,
+        });
     }
 
     /// A sender for the session's decoded audio; the recording encodes it
     /// to Opus on its own thread. Call once per recording.
     pub fn audio_tap(&mut self) -> anyhow::Result<mpsc::Sender<AudioChunk>> {
-        let Some(tx) = self.tx.clone() else { bail!("recording stopped") };
+        let Some(tx) = self.tx.clone() else {
+            bail!("recording stopped")
+        };
         let (atx, arx) = mpsc::channel::<AudioChunk>();
-        let mut enc = opus2::Encoder::new(AUDIO_RATE, opus2::Channels::Stereo, opus2::Application::Audio)?;
+        let mut enc = opus2::Encoder::new(
+            AUDIO_RATE,
+            opus2::Channels::Stereo,
+            opus2::Application::Audio,
+        )?;
         enc.set_bitrate(opus2::Bitrate::Bits(96_000))?;
         let (started, stop) = (self.started, self.audio_stop.clone());
         let t = std::thread::Builder::new()
@@ -163,7 +209,9 @@ impl Recorder {
         }
         drop(self.tx.take());
         match self.thread.take() {
-            Some(t) => t.join().map_err(|_| anyhow::anyhow!("recorder thread panicked"))?,
+            Some(t) => t
+                .join()
+                .map_err(|_| anyhow::anyhow!("recorder thread panicked"))?,
             None => bail!("recording already stopped"),
         }
     }
@@ -181,7 +229,13 @@ impl Drop for Recorder {
 /// and timestamp them. Continuous audio gets back-to-back timestamps;
 /// after a pause (the server sends nothing during silence) the clock
 /// re-syncs to when the sound arrived.
-fn audio_thread(rx: mpsc::Receiver<AudioChunk>, tx: mpsc::Sender<Msg>, mut enc: opus2::Encoder, started: Instant, stop: Arc<AtomicBool>) {
+fn audio_thread(
+    rx: mpsc::Receiver<AudioChunk>,
+    tx: mpsc::Sender<Msg>,
+    mut enc: opus2::Encoder,
+    started: Instant,
+    stop: Arc<AtomicBool>,
+) {
     let mut resampler = peek_audio::Resampler::default();
     let mut pcm: Vec<i16> = Vec::new();
     let mut pcm_start_ms: f64 = 0.0;
@@ -200,7 +254,10 @@ fn audio_thread(rx: mpsc::Receiver<AudioChunk>, tx: mpsc::Sender<Msg>, mut enc: 
         }
         while pcm.len() >= AUDIO_FRAME * ch {
             if let Ok(n) = enc.encode(&pcm[..AUDIO_FRAME * ch], &mut packet) {
-                let _ = tx.send(Msg::Audio { ts: *start as u32, packet: packet[..n].to_vec() });
+                let _ = tx.send(Msg::Audio {
+                    ts: *start as u32,
+                    packet: packet[..n].to_vec(),
+                });
             }
             pcm.drain(..AUDIO_FRAME * ch);
             *start += frame_ms;
@@ -212,7 +269,13 @@ fn audio_thread(rx: mpsc::Receiver<AudioChunk>, tx: mpsc::Sender<Msg>, mut enc: 
             Err(mpsc::RecvTimeoutError::Timeout) if !stop.load(Ordering::Relaxed) => continue,
             Err(_) => break,
         };
-        let samples = resampler.process_i16(&chunk.samples, chunk.rate, chunk.channels, AUDIO_RATE, AUDIO_CHANNELS);
+        let samples = resampler.process_i16(
+            &chunk.samples,
+            chunk.rate,
+            chunk.channels,
+            AUDIO_RATE,
+            AUDIO_CHANNELS,
+        );
         let dur_ms = (samples.len() / ch) as f64 * 1000.0 / AUDIO_RATE as f64;
         let arrived_ms = started.elapsed().as_secs_f64() * 1000.0;
         let starts_at = (arrived_ms - dur_ms).max(0.0);
@@ -240,7 +303,12 @@ struct SegmentBuf {
 
 impl SegmentBuf {
     fn new() -> Self {
-        Self { raw: Vec::with_capacity(1 << 20), first_ts: None, keyframe: false, opened: Instant::now() }
+        Self {
+            raw: Vec::with_capacity(1 << 20),
+            first_ts: None,
+            keyframe: false,
+            opened: Instant::now(),
+        }
     }
 
     fn header(&mut self, ts: u32, kind: u8) {
@@ -260,8 +328,10 @@ impl SegmentBuf {
     fn keyframe(&mut self, ts: u32, fb: &Framebuffer) {
         self.keyframe = true;
         self.header(ts, KIND_RESIZE);
-        self.raw.extend_from_slice(&(fb.width() as u16).to_le_bytes());
-        self.raw.extend_from_slice(&(fb.height() as u16).to_le_bytes());
+        self.raw
+            .extend_from_slice(&(fb.width() as u16).to_le_bytes());
+        self.raw
+            .extend_from_slice(&(fb.height() as u16).to_le_bytes());
         self.region(ts, Rect::new(0, 0, fb.width(), fb.height()), fb.as_bytes());
     }
 }
@@ -273,7 +343,11 @@ fn writer_thread(
     started: Instant,
     path: PathBuf,
 ) -> anyhow::Result<RecordingInfo> {
-    let ts = |at: Instant| at.saturating_duration_since(started).as_millis().min(u32::MAX as u128) as u32;
+    let ts = |at: Instant| {
+        at.saturating_duration_since(started)
+            .as_millis()
+            .min(u32::MAX as u128) as u32
+    };
     let mut seg = SegmentBuf::new();
     seg.keyframe(0, &shadow);
     let mut last_key = Instant::now();
@@ -324,7 +398,8 @@ fn writer_thread(
                 Msg::Audio { ts: t, packet } => {
                     last_ts = last_ts.max(t);
                     seg.header(t, KIND_AUDIO);
-                    seg.raw.extend_from_slice(&(packet.len() as u16).to_le_bytes());
+                    seg.raw
+                        .extend_from_slice(&(packet.len() as u16).to_le_bytes());
                     seg.raw.extend_from_slice(&packet);
                 }
             }
@@ -339,17 +414,32 @@ fn writer_thread(
     }
     flush(&mut seg, &mut file)?;
     let bytes = file.get_ref().metadata().map(|m| m.len()).unwrap_or(0);
-    Ok(RecordingInfo { path, duration: Duration::from_millis(last_ts as u64), bytes })
+    Ok(RecordingInfo {
+        path,
+        duration: Duration::from_millis(last_ts as u64),
+        bytes,
+    })
 }
 
 /// One decoded event from a recording.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
-    Region { rect: Rect, rgba: Vec<u8> },
-    Resize { w: u32, h: u32 },
-    Pointer { x: u32, y: u32 },
+    Region {
+        rect: Rect,
+        rgba: Vec<u8>,
+    },
+    Resize {
+        w: u32,
+        h: u32,
+    },
+    Pointer {
+        x: u32,
+        y: u32,
+    },
     /// One Opus packet (48 kHz stereo, 20 ms).
-    Audio { packet: Vec<u8> },
+    Audio {
+        packet: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -389,7 +479,10 @@ impl Player {
         file.read_exact(&mut meta)?;
         let metadata = String::from_utf8_lossy(&meta)
             .lines()
-            .filter_map(|l| l.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+            .filter_map(|l| {
+                l.split_once('=')
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+            })
             .collect();
 
         // Index segments; stop quietly at a truncated tail.
@@ -405,7 +498,12 @@ impl Player {
             if offset + 9 + len as u64 > total {
                 break;
             }
-            segments.push(SegmentIndex { offset: offset + 9, len, first_ts, keyframe: flags[0] & FLAG_KEYFRAME != 0 });
+            segments.push(SegmentIndex {
+                offset: offset + 9,
+                len,
+                first_ts,
+                keyframe: flags[0] & FLAG_KEYFRAME != 0,
+            });
             offset += 9 + len as u64;
         }
         ensure!(!segments.is_empty(), "recording contains no data");
@@ -430,7 +528,10 @@ impl Player {
     }
 
     pub fn meta(&self, key: &str) -> Option<&str> {
-        self.metadata.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.metadata
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     fn decode_segment(&mut self, i: usize) -> anyhow::Result<Vec<(u32, Event)>> {
@@ -444,7 +545,11 @@ impl Player {
 
     /// Jump to `ms`: restart from the nearest keyframe and replay up to it.
     pub fn seek(&mut self, ms: u32) -> anyhow::Result<()> {
-        let start = self.segments.iter().rposition(|s| s.keyframe && s.first_ts <= ms).unwrap_or(0);
+        let start = self
+            .segments
+            .iter()
+            .rposition(|s| s.keyframe && s.first_ts <= ms)
+            .unwrap_or(0);
         self.next_segment = start;
         self.pending = Vec::new().into_iter();
         self.position_ms = 0;
@@ -517,19 +622,30 @@ fn parse_records(raw: &[u8]) -> anyhow::Result<Vec<(u32, Event)>> {
             KIND_REGION => {
                 let g = take(&mut p, 8)?;
                 let rect = Rect::new(u16_at(g, 0), u16_at(g, 2), u16_at(g, 4), u16_at(g, 6));
-                Event::Region { rect, rgba: take(&mut p, rect.area() as usize * 4)?.to_vec() }
+                Event::Region {
+                    rect,
+                    rgba: take(&mut p, rect.area() as usize * 4)?.to_vec(),
+                }
             }
             KIND_RESIZE => {
                 let g = take(&mut p, 4)?;
-                Event::Resize { w: u16_at(g, 0), h: u16_at(g, 2) }
+                Event::Resize {
+                    w: u16_at(g, 0),
+                    h: u16_at(g, 2),
+                }
             }
             KIND_POINTER => {
                 let g = take(&mut p, 4)?;
-                Event::Pointer { x: u16_at(g, 0), y: u16_at(g, 2) }
+                Event::Pointer {
+                    x: u16_at(g, 0),
+                    y: u16_at(g, 2),
+                }
             }
             KIND_AUDIO => {
                 let n = u16_at(take(&mut p, 2)?, 0) as usize;
-                Event::Audio { packet: take(&mut p, n)?.to_vec() }
+                Event::Audio {
+                    packet: take(&mut p, n)?.to_vec(),
+                }
             }
             k => bail!("unknown record kind {k}"),
         };
@@ -586,9 +702,19 @@ mod tests {
         // does not add up.
         let t0 = Instant::now();
         for i in 0..30 {
-            let samples: Vec<i16> = (0..441 * 2).map(|j| (((i * 441 + j / 2) as f32 * 0.06).sin() * 9000.0) as i16).collect();
-            tap.send(AudioChunk { rate: 44_100, channels: 2, samples }).unwrap();
-            std::thread::sleep((t0 + Duration::from_millis(10 * (i as u64 + 1))).saturating_duration_since(Instant::now()));
+            let samples: Vec<i16> = (0..441 * 2)
+                .map(|j| (((i * 441 + j / 2) as f32 * 0.06).sin() * 9000.0) as i16)
+                .collect();
+            tap.send(AudioChunk {
+                rate: 44_100,
+                channels: 2,
+                samples,
+            })
+            .unwrap();
+            std::thread::sleep(
+                (t0 + Duration::from_millis(10 * (i as u64 + 1)))
+                    .saturating_duration_since(Instant::now()),
+            );
         }
         std::thread::sleep(Duration::from_millis(30));
         rec.stop().unwrap(); // must not wait for `tap` to be dropped
@@ -599,11 +725,18 @@ mod tests {
         let n = p.audio.len();
         assert!((14..=16).contains(&n), "{n} packets for 300 ms");
         let ts: Vec<u32> = p.audio.iter().map(|(t, _)| *t).collect();
-        assert!(ts.windows(2).all(|w| w[1] - w[0] == 20 || w[1] - w[0] == 19 || w[1] - w[0] == 21), "{ts:?}");
+        assert!(
+            ts.windows(2)
+                .all(|w| w[1] - w[0] == 20 || w[1] - w[0] == 19 || w[1] - w[0] == 21),
+            "{ts:?}"
+        );
         let mut dec = opus2::Decoder::new(48_000, opus2::Channels::Stereo).unwrap();
         let mut out = vec![0i16; 960 * 2];
         assert_eq!(dec.decode(&p.audio[3].1, &mut out, false).unwrap(), 960);
-        assert!(out.iter().any(|s| s.unsigned_abs() > 1000), "decoded audio is not silent");
+        assert!(
+            out.iter().any(|s| s.unsigned_abs() > 1000),
+            "decoded audio is not silent"
+        );
         p.seek(0).unwrap();
         assert!(p.audio.is_empty(), "seeking must not replay audio");
         std::fs::remove_dir_all(dir).ok();

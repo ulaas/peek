@@ -89,8 +89,15 @@ pub enum CursorUpdate {
 pub enum SessionEvent {
     /// Human-readable progress ("Negotiating TLS…").
     Status(String),
-    Connected { width: u32, height: u32, detail: String },
-    Resized { width: u32, height: u32 },
+    Connected {
+        width: u32,
+        height: u32,
+        detail: String,
+    },
+    Resized {
+        width: u32,
+        height: u32,
+    },
     Cursor(CursorUpdate),
     ClipboardText(String),
     /// Files copied on the remote side, downloaded to local paths.
@@ -99,10 +106,17 @@ pub enum SessionEvent {
     Notice(String),
     Bell,
     /// Server certificate / host key fingerprint seen during connect.
-    ServerIdentity { fingerprint: String },
+    ServerIdentity {
+        fingerprint: String,
+    },
     /// The server rejected or asked for credentials; the UI should prompt.
-    AuthRequired { message: String },
-    Disconnected { reason: Option<String>, error: bool },
+    AuthRequired {
+        message: String,
+    },
+    Disconnected {
+        reason: Option<String>,
+        error: bool,
+    },
 }
 
 /// Returned by backends when credentials are missing or wrong, so the UI
@@ -123,7 +137,10 @@ pub enum SessionCommand {
     ClipboardFiles(Vec<std::path::PathBuf>),
     /// Ask the server for a new desktop size (RDP display control, VNC
     /// SetDesktopSize). Servers may ignore it.
-    Resize { width: u32, height: u32 },
+    Resize {
+        width: u32,
+        height: u32,
+    },
     CtrlAltDel,
     /// Request a full framebuffer refresh.
     Refresh,
@@ -198,12 +215,20 @@ pub struct AudioControl {
 
 impl Default for AudioControl {
     fn default() -> Self {
-        Self { volume: AtomicU32::new(100), muted: Default::default(), last_heard_ms: AtomicU64::new(0), tap: Default::default() }
+        Self {
+            volume: AtomicU32::new(100),
+            muted: Default::default(),
+            last_heard_ms: AtomicU64::new(0),
+            tap: Default::default(),
+        }
     }
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 impl AudioControl {
@@ -221,7 +246,11 @@ impl AudioControl {
     }
     /// Gain to apply locally: volume, or zero when muted.
     pub fn gain(&self) -> f32 {
-        if self.muted() { 0.0 } else { self.volume() as f32 / 100.0 }
+        if self.muted() {
+            0.0
+        } else {
+            self.volume() as f32 / 100.0
+        }
     }
     /// Backend: sound is coming out now.
     pub fn heard(&self) {
@@ -239,12 +268,11 @@ impl AudioControl {
     }
     /// Backend: hand a chunk to the tap, if any. Drops the tap when its receiver is gone.
     pub fn feed_tap(&self, chunk: &AudioChunk) {
-        if let Ok(mut t) = self.tap.lock() {
-            if let Some(tx) = t.as_ref() {
-                if tx.send(chunk.clone()).is_err() {
-                    *t = None;
-                }
-            }
+        if let Ok(mut t) = self.tap.lock()
+            && let Some(tx) = t.as_ref()
+            && tx.send(chunk.clone()).is_err()
+        {
+            *t = None;
         }
     }
 }
@@ -288,7 +316,19 @@ pub fn new_session(width: u32, height: u32) -> (SessionHandle, SessionContext) {
     let (ev_tx, ev_rx) = std::sync::mpsc::channel();
     let audio = Arc::new(AudioControl::default());
     (
-        SessionHandle { frame: frame.clone(), stats: stats.clone(), audio: audio.clone(), commands: cmd_tx, events: ev_rx },
-        SessionContext { frame: frame.clone(), stats, audio, events: EventSink { tx: ev_tx, frame }, commands: cmd_rx },
+        SessionHandle {
+            frame: frame.clone(),
+            stats: stats.clone(),
+            audio: audio.clone(),
+            commands: cmd_tx,
+            events: ev_rx,
+        },
+        SessionContext {
+            frame: frame.clone(),
+            stats,
+            audio,
+            events: EventSink { tx: ev_tx, frame },
+            commands: cmd_rx,
+        },
     )
 }

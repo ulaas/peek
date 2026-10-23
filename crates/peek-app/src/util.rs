@@ -19,7 +19,11 @@ pub fn human_bytes(b: u64) -> String {
 
 pub fn clock(d: Duration) -> String {
     let s = d.as_secs();
-    if s >= 3600 { format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60) } else { format!("{:02}:{:02}", s / 60, s % 60) }
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{:02}:{:02}", s / 60, s % 60)
+    }
 }
 
 /// Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
@@ -37,10 +41,18 @@ fn civil(days: i64) -> (i64, u32, u32) {
 
 /// `2026-10-16_14-03-27` in UTC, safe for file names.
 pub fn file_stamp() -> String {
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
     let (y, m, d) = civil(secs.div_euclid(86_400));
     let t = secs.rem_euclid(86_400);
-    format!("{y:04}-{m:02}-{d:02}_{:02}-{:02}-{:02}", t / 3600, t / 60 % 60, t % 60)
+    format!(
+        "{y:04}-{m:02}-{d:02}_{:02}-{:02}-{:02}",
+        t / 3600,
+        t / 60 % 60,
+        t % 60
+    )
 }
 
 pub fn ago(unix: u64) -> String {
@@ -87,7 +99,15 @@ pub fn log_dir() -> Option<std::path::PathBuf> {
 }
 
 pub fn safe_file_name(s: &str) -> String {
-    s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '_' }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -118,10 +138,15 @@ pub fn read_clipboard() -> Option<LocalClip> {
     {
         return Some(LocalClip::Files(files));
     }
-    cb.get_text().ok().filter(|t| !t.is_empty()).map(LocalClip::Text)
+    cb.get_text()
+        .ok()
+        .filter(|t| !t.is_empty())
+        .map(LocalClip::Text)
 }
 
 /// Put files on the OS clipboard, as Explorer's copy does.
 pub fn write_clipboard_files(paths: &[std::path::PathBuf]) -> bool {
-    arboard::Clipboard::new().and_then(|mut cb| cb.set().file_list(paths)).is_ok()
+    arboard::Clipboard::new()
+        .and_then(|mut cb| cb.set().file_list(paths))
+        .is_ok()
 }

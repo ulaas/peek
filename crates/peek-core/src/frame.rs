@@ -63,7 +63,12 @@ impl Rect {
         }
         let x = self.x.min(o.x);
         let y = self.y.min(o.y);
-        Rect::new(x, y, self.right().max(o.right()) - x, self.bottom().max(o.bottom()) - y)
+        Rect::new(
+            x,
+            y,
+            self.right().max(o.right()) - x,
+            self.bottom().max(o.bottom()) - y,
+        )
     }
 
     pub fn intersect(&self, o: &Rect) -> Rect {
@@ -71,7 +76,11 @@ impl Rect {
         let y = self.y.max(o.y);
         let r = self.right().min(o.right());
         let b = self.bottom().min(o.bottom());
-        if r <= x || b <= y { Rect::default() } else { Rect::new(x, y, r - x, b - y) }
+        if r <= x || b <= y {
+            Rect::default()
+        } else {
+            Rect::new(x, y, r - x, b - y)
+        }
     }
 
     /// True if the rects overlap or share an edge.
@@ -102,13 +111,13 @@ impl DirtyRegion {
         }
         // Cheap coalescing against the last rect: decoders emit tiles in
         // scan order, so neighbours usually arrive back to back.
-        if let Some(last) = self.rects.last_mut() {
-            if last.touches(&r) {
-                let u = last.union(&r);
-                if u.area() <= last.area() + r.area() + r.area() / 2 {
-                    *last = u;
-                    return;
-                }
+        if let Some(last) = self.rects.last_mut()
+            && last.touches(&r)
+        {
+            let u = last.union(&r);
+            if u.area() <= last.area() + r.area() + r.area() / 2 {
+                *last = u;
+                return;
             }
         }
         self.rects.push(r);
@@ -135,8 +144,11 @@ impl DirtyRegion {
         if full {
             return vec![Rect::new(0, 0, width, height)];
         }
-        let mut out: Vec<Rect> =
-            rects.into_iter().map(|r| r.clamp_to(width, height)).filter(|r| !r.is_empty()).collect();
+        let mut out: Vec<Rect> = rects
+            .into_iter()
+            .map(|r| r.clamp_to(width, height))
+            .filter(|r| !r.is_empty())
+            .collect();
         // If the damage covers most of its bounding box, send the box.
         if out.len() > 1 {
             let bb = out.iter().fold(Rect::default(), |a, r| a.union(r));
@@ -159,7 +171,11 @@ pub struct Framebuffer {
 
 impl Framebuffer {
     pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height, data: vec![rgb(0, 0, 0); width as usize * height as usize] }
+        Self {
+            width,
+            height,
+            data: vec![rgb(0, 0, 0); width as usize * height as usize],
+        }
     }
 
     #[inline]
@@ -232,7 +248,8 @@ impl Framebuffer {
         let ox = (c.x - r.x) as usize;
         for y in c.y..c.bottom() {
             let s = (y - r.y) as usize * r.w as usize + ox;
-            self.row_mut(y, c.x, c.w).copy_from_slice(&src[s..s + c.w as usize]);
+            self.row_mut(y, c.x, c.w)
+                .copy_from_slice(&src[s..s + c.w as usize]);
         }
     }
 
@@ -289,7 +306,10 @@ pub struct SharedFrame {
 impl SharedFrame {
     pub fn new(width: u32, height: u32) -> Arc<Self> {
         Arc::new(Self {
-            state: Mutex::new(FrameState { fb: Framebuffer::new(width, height), dirty: DirtyRegion::default() }),
+            state: Mutex::new(FrameState {
+                fb: Framebuffer::new(width, height),
+                dirty: DirtyRegion::default(),
+            }),
             waker: Mutex::new(None),
             generation: AtomicU64::new(0),
         })
@@ -316,7 +336,11 @@ impl SharedFrame {
     }
 
     pub fn write(&self) -> FrameWriter<'_> {
-        FrameWriter { owner: self, g: Some(self.state.lock()), touched: false }
+        FrameWriter {
+            owner: self,
+            g: Some(self.state.lock()),
+            touched: false,
+        }
     }
 
     /// Run `f` with the framebuffer and the damage accumulated since the

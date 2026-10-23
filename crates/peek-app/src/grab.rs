@@ -35,8 +35,8 @@ mod imp {
     use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_EXTENDED, LLKHF_INJECTED, LLKHF_UP, SetWindowsHookExW,
-        UnhookWindowsHookEx, WH_KEYBOARD_LL,
+        CallNextHookEx, KBDLLHOOKSTRUCT, LLKHF_ALTDOWN, LLKHF_EXTENDED, LLKHF_INJECTED, LLKHF_UP,
+        SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
     };
 
     static HOOK: AtomicIsize = AtomicIsize::new(0);
@@ -61,7 +61,10 @@ mod imp {
     fn to_keycode(scan: u32, extended: bool) -> Option<KeyCode> {
         let scan = scan as u8;
         // Print Screen arrives as scan 0x37 extended, Right Shift as 0x36 not extended.
-        KeyCode::ALL.iter().copied().find(|k| k.scancode() == (scan, extended))
+        KeyCode::ALL
+            .iter()
+            .copied()
+            .find(|k| k.scancode() == (scan, extended))
     }
 
     unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -81,11 +84,11 @@ mod imp {
                 if take {
                     let extended = k.flags & LLKHF_EXTENDED != 0;
                     if let Some(key) = to_keycode(k.scanCode, extended) {
-                        if let Ok(g) = SINK.lock() {
-                            if let Some((tx, ctx)) = g.as_ref() {
-                                let _ = tx.send((key, k.flags & LLKHF_UP == 0));
-                                ctx.request_repaint();
-                            }
+                        if let Ok(g) = SINK.lock()
+                            && let Some((tx, ctx)) = g.as_ref()
+                        {
+                            let _ = tx.send((key, k.flags & LLKHF_UP == 0));
+                            ctx.request_repaint();
                         }
                         return 1; // swallow: the local OS never sees it
                     }
@@ -107,7 +110,10 @@ mod imp {
             if let Ok(mut g) = SINK.lock() {
                 *g = Some((tx, ctx.clone()));
             }
-            Self { rx, mode: GrabMode::Off }
+            Self {
+                rx,
+                mode: GrabMode::Off,
+            }
         }
 
         pub fn set_mode(&mut self, mode: GrabMode) {
@@ -133,7 +139,14 @@ mod imp {
                 (GrabMode::System | GrabMode::All, 0) => {
                     // SAFETY: installs a hook procedure from this module; it is
                     // removed again in set_mode(Off) / Drop.
-                    let h = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(hook_proc), GetModuleHandleW(std::ptr::null()), 0) };
+                    let h = unsafe {
+                        SetWindowsHookExW(
+                            WH_KEYBOARD_LL,
+                            Some(hook_proc),
+                            GetModuleHandleW(std::ptr::null()),
+                            0,
+                        )
+                    };
                     if h.is_null() {
                         tracing::warn!("keyboard grab unavailable");
                     } else {

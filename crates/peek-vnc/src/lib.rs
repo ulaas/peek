@@ -12,8 +12,8 @@ use crate::decode::*;
 use crate::io::{Msg, Reader};
 use anyhow::{Context, bail};
 use peek_core::{
-    ConnectRequest, CursorImage, CursorUpdate, EventSink, InputEvent, KeyCode, MouseButton, Rect, SessionCommand,
-    SessionContext, SessionEvent, SessionStats, SharedFrame, char_to_keysym,
+    ConnectRequest, CursorImage, CursorUpdate, EventSink, InputEvent, KeyCode, MouseButton, Rect,
+    SessionCommand, SessionContext, SessionEvent, SessionStats, SharedFrame, char_to_keysym,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +24,6 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 pub use handshake::vnc_auth_response;
-
 
 const MAX_DIM: u32 = 16384;
 const NO_SCREEN: u32 = u32::MAX;
@@ -67,11 +66,23 @@ fn msg_set_pixel_format() -> Vec<u8> {
 }
 
 fn msg_set_encodings(enc: &[i32]) -> Vec<u8> {
-    enc.iter().fold(Msg::default().u8(2).pad(1).u16(enc.len() as u16), |m, &e| m.i32(e)).0
+    enc.iter()
+        .fold(
+            Msg::default().u8(2).pad(1).u16(enc.len() as u16),
+            |m, &e| m.i32(e),
+        )
+        .0
 }
 
 fn msg_update_request(incremental: bool, w: u32, h: u32) -> Vec<u8> {
-    Msg::default().u8(3).u8(incremental as u8).u16(0).u16(0).u16(w as u16).u16(h as u16).0
+    Msg::default()
+        .u8(3)
+        .u8(incremental as u8)
+        .u16(0)
+        .u16(0)
+        .u16(w as u16)
+        .u16(h as u16)
+        .0
 }
 
 fn msg_key(down: bool, keysym: u32) -> Vec<u8> {
@@ -79,13 +90,26 @@ fn msg_key(down: bool, keysym: u32) -> Vec<u8> {
 }
 
 fn msg_pointer(mask: u8, x: u32, y: u32) -> Vec<u8> {
-    Msg::default().u8(5).u8(mask).u16(x.min(u16::MAX as u32) as u16).u16(y.min(u16::MAX as u32) as u16).0
+    Msg::default()
+        .u8(5)
+        .u8(mask)
+        .u16(x.min(u16::MAX as u32) as u16)
+        .u16(y.min(u16::MAX as u32) as u16)
+        .0
 }
 
 fn msg_cut_text(text: &str) -> Vec<u8> {
     // RFB cut text is Latin-1.
-    let bytes: Vec<u8> = text.chars().map(|c| if (c as u32) < 256 { c as u8 } else { b'?' }).collect();
-    Msg::default().u8(6).pad(3).u32(bytes.len() as u32).bytes(&bytes).0
+    let bytes: Vec<u8> = text
+        .chars()
+        .map(|c| if (c as u32) < 256 { c as u8 } else { b'?' })
+        .collect();
+    Msg::default()
+        .u8(6)
+        .pad(3)
+        .u32(bytes.len() as u32)
+        .bytes(&bytes)
+        .0
 }
 
 fn msg_set_desktop_size(w: u32, h: u32, screen_id: u32) -> Vec<u8> {
@@ -119,7 +143,8 @@ pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result
     let mut r = Reader::new(rh, Some(ctx.stats.clone()));
 
     ctx.events.status("Negotiating");
-    let init = handshake::handshake(&mut r, &mut wh, req.credentials.password.as_deref(), true).await?;
+    let init =
+        handshake::handshake(&mut r, &mut wh, req.credentials.password.as_deref(), true).await?;
     let (w, h) = (init.width as u32, init.height as u32);
     ctx.frame.write().resize(w, h);
 
@@ -128,7 +153,11 @@ pub async fn run(req: ConnectRequest, mut ctx: SessionContext) -> anyhow::Result
     hello.extend(msg_update_request(false, w, h));
     wh.write_all(&hello).await?;
 
-    ctx.events.send(SessionEvent::Connected { width: w, height: h, detail: format!("VNC · {}", init.name) });
+    ctx.events.send(SessionEvent::Connected {
+        width: w,
+        height: h,
+        detail: format!("VNC · {}", init.name),
+    });
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let stats = ctx.stats.clone();
@@ -231,7 +260,9 @@ async fn read_loop<R: AsyncRead + Unpin>(
                     if enc >= 0 {
                         let (fw, fh) = frame.size();
                         if x + w > fw || y + h > fh {
-                            bail!("server sent a {w}x{h} rectangle at {x},{y} outside the {fw}x{fh} screen");
+                            bail!(
+                                "server sent a {w}x{h} rectangle at {x},{y} outside the {fw}x{fh} screen"
+                            );
                         }
                     }
                     match enc {
@@ -262,7 +293,13 @@ async fn read_loop<R: AsyncRead + Unpin>(
                             r.read_into(len, &mut buf).await?;
                             // Upper bound: every tile raw (1 + 3 bytes/pixel) plus a full palette header.
                             let tiles = (w as usize).div_ceil(64) * (h as usize).div_ceil(64);
-                            inflate(&mut zrle_z, &buf, None, w as usize * h as usize * 4 + tiles * 400, &mut inflated)?;
+                            inflate(
+                                &mut zrle_z,
+                                &buf,
+                                None,
+                                w as usize * h as usize * 4 + tiles * 400,
+                                &mut inflated,
+                            )?;
                             zrle(&inflated, w, h, &mut pixels)?;
                             frame.write().put_rect(rect, &pixels);
                         }
@@ -302,7 +339,10 @@ async fn read_loop<R: AsyncRead + Unpin>(
                                     first_id = id;
                                 }
                             }
-                            screen_id.store(if first_id == NO_SCREEN { 0 } else { first_id }, Ordering::Relaxed);
+                            screen_id.store(
+                                if first_id == NO_SCREEN { 0 } else { first_id },
+                                Ordering::Relaxed,
+                            );
                             // y carries the status of a client-requested change; 0 = success.
                             if y == 0 {
                                 resize(&frame, &events, &tx, w, h)?;
@@ -330,7 +370,9 @@ async fn read_loop<R: AsyncRead + Unpin>(
                     r.skip(len.unsigned_abs() as usize).await?;
                 } else {
                     let bytes = r.vec((len as usize).min(16 << 20)).await?;
-                    events.send(SessionEvent::ClipboardText(bytes.iter().map(|&b| b as char).collect()));
+                    events.send(SessionEvent::ClipboardText(
+                        bytes.iter().map(|&b| b as char).collect(),
+                    ));
                 }
             }
             150 => {} // EndOfContinuousUpdates
@@ -350,7 +392,10 @@ fn resize(frame: &SharedFrame, events: &EventSink, tx: &Tx, w: u32, h: u32) -> a
         bail!("server announced an invalid desktop size {w}x{h}");
     }
     frame.write().resize(w, h);
-    events.send(SessionEvent::Resized { width: w, height: h });
+    events.send(SessionEvent::Resized {
+        width: w,
+        height: h,
+    });
     let _ = tx.send(msg_update_request(false, w, h));
     Ok(())
 }
@@ -408,7 +453,11 @@ impl InputState {
                     MouseButton::Right => 4,
                     MouseButton::X1 | MouseButton::X2 => return,
                 };
-                if down { self.buttons |= bit } else { self.buttons &= !bit }
+                if down {
+                    self.buttons |= bit
+                } else {
+                    self.buttons &= !bit
+                }
                 (self.x, self.y) = (x, y);
                 let _ = tx.send(msg_pointer(self.buttons, x, y));
             }
@@ -453,12 +502,24 @@ mod tests {
     fn printable_keys_go_through_text() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut s = InputState::default();
-        s.handle(InputEvent::Key { code: KeyCode::KeyA, down: true }, &tx);
+        s.handle(
+            InputEvent::Key {
+                code: KeyCode::KeyA,
+                down: true,
+            },
+            &tx,
+        );
         assert!(rx.try_recv().is_err());
         s.handle(InputEvent::Text("a".into()), &tx);
         assert_eq!(rx.try_recv().unwrap(), msg_key(true, 0x61));
         assert_eq!(rx.try_recv().unwrap(), msg_key(false, 0x61));
-        s.handle(InputEvent::Key { code: KeyCode::KeyA, down: false }, &tx);
+        s.handle(
+            InputEvent::Key {
+                code: KeyCode::KeyA,
+                down: false,
+            },
+            &tx,
+        );
         assert!(rx.try_recv().is_err());
     }
 
@@ -466,10 +527,35 @@ mod tests {
     fn ctrl_chords_send_keysyms() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut s = InputState::default();
-        s.handle(InputEvent::Key { code: KeyCode::ControlLeft, down: true }, &tx);
-        s.handle(InputEvent::Key { code: KeyCode::KeyC, down: true }, &tx);
-        s.handle(InputEvent::Key { code: KeyCode::KeyC, down: false }, &tx);
+        s.handle(
+            InputEvent::Key {
+                code: KeyCode::ControlLeft,
+                down: true,
+            },
+            &tx,
+        );
+        s.handle(
+            InputEvent::Key {
+                code: KeyCode::KeyC,
+                down: true,
+            },
+            &tx,
+        );
+        s.handle(
+            InputEvent::Key {
+                code: KeyCode::KeyC,
+                down: false,
+            },
+            &tx,
+        );
         let msgs: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
-        assert_eq!(msgs, vec![msg_key(true, 0xffe3), msg_key(true, 0x63), msg_key(false, 0x63)]);
+        assert_eq!(
+            msgs,
+            vec![
+                msg_key(true, 0xffe3),
+                msg_key(true, 0x63),
+                msg_key(false, 0x63)
+            ]
+        );
     }
 }

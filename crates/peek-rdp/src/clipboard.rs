@@ -14,9 +14,9 @@
 use ironrdp::cliprdr::CliprdrClient;
 use ironrdp::cliprdr::backend::{ClipboardMessage, CliprdrBackend};
 use ironrdp::cliprdr::pdu::{
-    ClipboardFileAttributes, ClipboardFormat, ClipboardFormatId, ClipboardFormatName, ClipboardGeneralCapabilityFlags,
-    FileContentsFlags, FileContentsRequest, FileContentsResponse, FileDescriptor, FormatDataRequest,
-    FormatDataResponse, LockDataId,
+    ClipboardFileAttributes, ClipboardFormat, ClipboardFormatId, ClipboardFormatName,
+    ClipboardGeneralCapabilityFlags, FileContentsFlags, FileContentsRequest, FileContentsResponse,
+    FileDescriptor, FormatDataRequest, FormatDataResponse, LockDataId,
 };
 use ironrdp::core::{IntoOwned as _, impl_as_any};
 use ironrdp::session::{ActiveStage, SessionResult};
@@ -126,7 +126,9 @@ impl RdpClipboard {
     }
 
     fn notice(&self, text: impl Into<String>) {
-        let _ = self.queue.send(ClipWork::Event(SessionEvent::Notice(text.into())));
+        let _ = self
+            .queue
+            .send(ClipWork::Event(SessionEvent::Notice(text.into())));
     }
 
     fn stream_id(&mut self) -> u32 {
@@ -140,7 +142,9 @@ impl RdpClipboard {
             let _ = std::fs::remove_dir_all(&d.folder);
             if let Some(why) = why {
                 tracing::warn!("clipboard: file download stopped: {why}");
-                self.notice(format!("Could not copy files from the remote clipboard: {why}"));
+                self.notice(format!(
+                    "Could not copy files from the remote clipboard: {why}"
+                ));
             }
         }
     }
@@ -149,9 +153,13 @@ impl RdpClipboard {
     /// finished files. Hands the files to the UI once everything arrived.
     fn advance(&mut self) {
         let stream = self.stream_id();
-        let Some(d) = self.download.as_mut() else { return };
+        let Some(d) = self.download.as_mut() else {
+            return;
+        };
         let result = loop {
-            let Some(item) = d.items.get(d.index) else { break Ok(None) };
+            let Some(item) = d.items.get(d.index) else {
+                break Ok(None);
+            };
             if item.dir {
                 if let Err(e) = std::fs::create_dir_all(&item.path) {
                     break Err(e);
@@ -160,7 +168,11 @@ impl RdpClipboard {
                 continue;
             }
             if d.file.is_none() {
-                let created = item.path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| File::create(&item.path));
+                let created = item
+                    .path
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|_| File::create(&item.path));
                 match created {
                     Ok(f) => d.file = Some(f),
                     Err(e) => break Err(e),
@@ -197,9 +209,15 @@ impl RdpClipboard {
             Ok(Some(request)) => self.push(ClipboardMessage::SendFileContentsRequest(request)),
             Ok(None) => {
                 let d = self.download.take().expect("download in progress");
-                tracing::info!("clipboard: {} remote item(s) copied to {}", d.items.len(), d.folder.display());
+                tracing::info!(
+                    "clipboard: {} remote item(s) copied to {}",
+                    d.items.len(),
+                    d.folder.display()
+                );
                 self.last_folder = Some(d.folder);
-                let _ = self.queue.send(ClipWork::Event(SessionEvent::ClipboardFiles(d.roots)));
+                let _ = self
+                    .queue
+                    .send(ClipWork::Event(SessionEvent::ClipboardFiles(d.roots)));
             }
             Err(e) => self.abort_download(Some(&e.to_string())),
         }
@@ -224,11 +242,16 @@ impl CliprdrBackend for RdpClipboard {
         // Files can only be announced once the channel is ready; they are
         // offered again when Peek regains focus or before a paste.
         let has_text = self.local.lock().map(|l| l.text.is_some()).unwrap_or(false);
-        self.push(ClipboardMessage::SendInitiateCopy(if has_text { text_formats() } else { Vec::new() }));
+        self.push(ClipboardMessage::SendInitiateCopy(if has_text {
+            text_formats()
+        } else {
+            Vec::new()
+        }));
     }
 
     fn on_process_negotiated_capabilities(&mut self, flags: ClipboardGeneralCapabilityFlags) {
-        self.files_enabled = flags.contains(ClipboardGeneralCapabilityFlags::STREAM_FILECLIP_ENABLED);
+        self.files_enabled =
+            flags.contains(ClipboardGeneralCapabilityFlags::STREAM_FILECLIP_ENABLED);
         tracing::debug!("clipboard: negotiated {flags:?}");
     }
 
@@ -236,17 +259,21 @@ impl CliprdrBackend for RdpClipboard {
         // New remote content replaces whatever was being fetched.
         self.abort_download(None);
         self.requested = None;
-        let files = formats
-            .iter()
-            .find(|f| f.name().is_some_and(|n| n.value() == ClipboardFormatName::FILE_LIST.value()));
+        let files = formats.iter().find(|f| {
+            f.name()
+                .is_some_and(|n| n.value() == ClipboardFormatName::FILE_LIST.value())
+        });
         if let Some(f) = files.filter(|_| self.files_enabled) {
             // The file list arrives in on_remote_file_list.
             self.push(ClipboardMessage::SendInitiatePaste(f.id()));
             return;
         }
-        let pick = [ClipboardFormatId::CF_UNICODETEXT, ClipboardFormatId::CF_TEXT]
-            .into_iter()
-            .find(|want| formats.iter().any(|f| f.id() == *want));
+        let pick = [
+            ClipboardFormatId::CF_UNICODETEXT,
+            ClipboardFormatId::CF_TEXT,
+        ]
+        .into_iter()
+        .find(|want| formats.iter().any(|f| f.id() == *want));
         if let Some(id) = pick {
             self.requested = Some(id);
             self.push(ClipboardMessage::SendInitiatePaste(id));
@@ -256,7 +283,9 @@ impl CliprdrBackend for RdpClipboard {
     fn on_format_data_request(&mut self, request: FormatDataRequest) {
         let text = self.local.lock().ok().and_then(|l| l.text.clone());
         let response = match (request.format, text) {
-            (ClipboardFormatId::CF_UNICODETEXT, Some(t)) => FormatDataResponse::new_unicode_string(&t),
+            (ClipboardFormatId::CF_UNICODETEXT, Some(t)) => {
+                FormatDataResponse::new_unicode_string(&t)
+            }
             (ClipboardFormatId::CF_TEXT, Some(t)) => FormatDataResponse::new_string(&t),
             _ => FormatDataResponse::new_error(),
         };
@@ -274,7 +303,9 @@ impl CliprdrBackend for RdpClipboard {
         };
         if let Ok(t) = text {
             let t = t.trim_end_matches('\0').replace("\r\n", "\n");
-            let _ = self.queue.send(ClipWork::Event(SessionEvent::ClipboardText(t)));
+            let _ = self
+                .queue
+                .send(ClipWork::Event(SessionEvent::ClipboardText(t)));
         }
     }
 
@@ -297,34 +328,58 @@ impl CliprdrBackend for RdpClipboard {
         let mut roots = Vec::new();
         for (i, f) in files.iter().enumerate() {
             let Some(rel) = safe_relative(f) else {
-                tracing::warn!("clipboard: skipping remote file with unsafe name {:?}", f.name);
+                tracing::warn!(
+                    "clipboard: skipping remote file with unsafe name {:?}",
+                    f.name
+                );
                 continue;
             };
             let path = folder.join(&rel);
             if rel.components().count() == 1 {
                 roots.push(path.clone());
             }
-            let dir = f.attributes.is_some_and(|a| a.contains(ClipboardFileAttributes::DIRECTORY));
-            items.push(Item { lindex: i as i32, path, dir, size: f.file_size });
+            let dir = f
+                .attributes
+                .is_some_and(|a| a.contains(ClipboardFileAttributes::DIRECTORY));
+            items.push(Item {
+                lindex: i as i32,
+                path,
+                dir,
+                size: f.file_size,
+            });
         }
         if roots.is_empty() {
             return;
         }
         if let Err(e) = std::fs::create_dir_all(&folder) {
-            self.notice(format!("Could not copy files from the remote clipboard: {e}"));
+            self.notice(format!(
+                "Could not copy files from the remote clipboard: {e}"
+            ));
             return;
         }
-        tracing::info!("clipboard: copying {} remote item(s), {}", items.len(), human_size(total));
-        self.download = Some(Download { folder, items, roots, index: 0, file: None, offset: 0, stream: 0 });
+        tracing::info!(
+            "clipboard: copying {} remote item(s), {}",
+            items.len(),
+            human_size(total)
+        );
+        self.download = Some(Download {
+            folder,
+            items,
+            roots,
+            index: 0,
+            file: None,
+            offset: 0,
+            stream: 0,
+        });
         self.advance();
     }
 
     fn on_file_contents_request(&mut self, request: FileContentsRequest) {
-        let path = self
-            .local
-            .lock()
-            .ok()
-            .and_then(|l| usize::try_from(request.index).ok().and_then(|i| l.files.get(i).cloned()));
+        let path = self.local.lock().ok().and_then(|l| {
+            usize::try_from(request.index)
+                .ok()
+                .and_then(|i| l.files.get(i).cloned())
+        });
         let response = match path.map(|p| read_contents(&p, &request)) {
             Some(Ok(r)) => r,
             Some(Err(e)) => {
@@ -337,7 +392,9 @@ impl CliprdrBackend for RdpClipboard {
     }
 
     fn on_file_contents_response(&mut self, response: FileContentsResponse<'_>) {
-        let Some(d) = self.download.as_mut() else { return };
+        let Some(d) = self.download.as_mut() else {
+            return;
+        };
         if response.stream_id() != d.stream {
             return;
         }
@@ -355,7 +412,9 @@ impl CliprdrBackend for RdpClipboard {
         let size = item.size.unwrap_or(0);
         let data = response.data();
         // Never write past the size the remote announced.
-        let take = data.len().min(usize::try_from(size - d.offset).unwrap_or(usize::MAX));
+        let take = data
+            .len()
+            .min(usize::try_from(size - d.offset).unwrap_or(usize::MAX));
         if let Some(file) = d.file.as_mut()
             && let Err(e) = file.write_all(&data[..take])
         {
@@ -375,27 +434,43 @@ impl CliprdrBackend for RdpClipboard {
 }
 
 /// Answer a file contents request for a locally offered file.
-fn read_contents(path: &Path, request: &FileContentsRequest) -> std::io::Result<FileContentsResponse<'static>> {
+fn read_contents(
+    path: &Path,
+    request: &FileContentsRequest,
+) -> std::io::Result<FileContentsResponse<'static>> {
     if request.flags.contains(FileContentsFlags::SIZE) {
-        return Ok(FileContentsResponse::new_size_response(request.stream_id, std::fs::metadata(path)?.len()));
+        return Ok(FileContentsResponse::new_size_response(
+            request.stream_id,
+            std::fs::metadata(path)?.len(),
+        ));
     }
     let mut file = File::open(path)?;
     file.seek(SeekFrom::Start(request.position))?;
     let mut buf = Vec::with_capacity(request.requested_size.min(CHUNK * 8) as usize);
-    file.take(u64::from(request.requested_size)).read_to_end(&mut buf)?;
-    Ok(FileContentsResponse::new_data_response(request.stream_id, buf))
+    file.take(u64::from(request.requested_size))
+        .read_to_end(&mut buf)?;
+    Ok(FileContentsResponse::new_data_response(
+        request.stream_id,
+        buf,
+    ))
 }
 
 /// Where a remote file list is downloaded to; unique per process and download.
 fn download_folder(n: u32) -> PathBuf {
-    std::env::temp_dir().join("peek-clipboard").join(format!("{}-{n}", std::process::id()))
+    std::env::temp_dir()
+        .join("peek-clipboard")
+        .join(format!("{}-{n}", std::process::id()))
 }
 
 /// Relative path of a remote entry, or None if any part of it could escape
 /// the download folder or name a device.
 fn safe_relative(f: &FileDescriptor) -> Option<PathBuf> {
     let mut rel = PathBuf::new();
-    let parts = f.relative_path.iter().flat_map(|p| p.split('\\')).chain(std::iter::once(f.name.as_str()));
+    let parts = f
+        .relative_path
+        .iter()
+        .flat_map(|p| p.split('\\'))
+        .chain(std::iter::once(f.name.as_str()));
     for part in parts {
         let bad = part.is_empty()
             || part == "."
@@ -413,14 +488,25 @@ fn safe_relative(f: &FileDescriptor) -> Option<PathBuf> {
 /// File descriptors for local paths, with folders walked so their contents
 /// follow them. Returns the descriptors and the matching paths.
 fn describe(paths: &[PathBuf]) -> (Vec<FileDescriptor>, Vec<PathBuf>) {
-    fn add(path: &Path, parent: Option<&str>, descs: &mut Vec<FileDescriptor>, files: &mut Vec<PathBuf>) {
+    fn add(
+        path: &Path,
+        parent: Option<&str>,
+        descs: &mut Vec<FileDescriptor>,
+        files: &mut Vec<PathBuf>,
+    ) {
         if descs.len() >= MAX_FILES {
             return;
         }
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
         // Linked folders are skipped so a link cycle cannot loop forever.
-        let Ok(link) = std::fs::symlink_metadata(path) else { return };
-        let Ok(meta) = std::fs::metadata(path) else { return };
+        let Ok(link) = std::fs::symlink_metadata(path) else {
+            return;
+        };
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
         if link.file_type().is_symlink() && meta.is_dir() {
             return;
         }
@@ -443,14 +529,20 @@ fn describe(paths: &[PathBuf]) -> (Vec<FileDescriptor>, Vec<PathBuf>) {
                 Some(p) => format!("{p}\\{name}"),
                 None => name.to_string(),
             };
-            let Ok(entries) = std::fs::read_dir(path) else { return };
-            let mut children: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+            let Ok(entries) = std::fs::read_dir(path) else {
+                return;
+            };
+            let mut children: Vec<PathBuf> =
+                entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
             children.sort();
             for child in children {
                 add(&child, Some(&child_parent), descs, files);
             }
         } else {
-            descs.push(desc.with_attributes(ClipboardFileAttributes::NORMAL).with_file_size(meta.len()));
+            descs.push(
+                desc.with_attributes(ClipboardFileAttributes::NORMAL)
+                    .with_file_size(meta.len()),
+            );
             files.push(path.to_path_buf());
         }
     }
@@ -482,13 +574,21 @@ impl ClipboardLink {
             l.text = Some(text.replace('\n', "\r\n"));
             l.files.clear();
         }
-        let Some(c) = stage.get_svc_processor_mut::<CliprdrClient>() else { return Ok(None) };
-        let msgs = c.initiate_copy(&text_formats()).map_err(|e| ironrdp::session::custom_err!("CLIPRDR", e))?;
+        let Some(c) = stage.get_svc_processor_mut::<CliprdrClient>() else {
+            return Ok(None);
+        };
+        let msgs = c
+            .initiate_copy(&text_formats())
+            .map_err(|e| ironrdp::session::custom_err!("CLIPRDR", e))?;
         stage.process_svc_processor_messages(msgs).map(Some)
     }
 
     /// Offer local files (and the contents of folders) to the server.
-    pub fn offer_files(&self, stage: &mut ActiveStage, paths: &[PathBuf]) -> SessionResult<Option<Vec<u8>>> {
+    pub fn offer_files(
+        &self,
+        stage: &mut ActiveStage,
+        paths: &[PathBuf],
+    ) -> SessionResult<Option<Vec<u8>>> {
         let (descs, files) = describe(paths);
         if descs.is_empty() {
             return Ok(None);
@@ -498,7 +598,9 @@ impl ClipboardLink {
             l.text = None;
             l.files = files;
         }
-        let Some(c) = stage.get_svc_processor_mut::<CliprdrClient>() else { return Ok(None) };
+        let Some(c) = stage.get_svc_processor_mut::<CliprdrClient>() else {
+            return Ok(None);
+        };
         match c.initiate_file_copy(descs) {
             Ok(msgs) => {
                 tracing::debug!("clipboard: offered {count} local item(s)");
@@ -514,7 +616,10 @@ impl ClipboardLink {
     }
 
     /// Perform queued channel work. Returns frames to send and events for the UI.
-    pub fn drain(&self, stage: &mut ActiveStage) -> SessionResult<(Vec<Vec<u8>>, Vec<SessionEvent>)> {
+    pub fn drain(
+        &self,
+        stage: &mut ActiveStage,
+    ) -> SessionResult<(Vec<Vec<u8>>, Vec<SessionEvent>)> {
         let mut frames = Vec::new();
         let mut events = Vec::new();
         while let Ok(w) = self.work.try_recv() {
@@ -525,7 +630,9 @@ impl ClipboardLink {
                 }
                 ClipWork::Channel(m) => m,
             };
-            let Some(c) = stage.get_svc_processor_mut::<CliprdrClient>() else { continue };
+            let Some(c) = stage.get_svc_processor_mut::<CliprdrClient>() else {
+                continue;
+            };
             let msgs = match m {
                 ClipboardMessage::SendInitiateCopy(f) => c.initiate_copy(&f),
                 ClipboardMessage::SendFormatData(r) => c.submit_format_data(r),
@@ -558,8 +665,18 @@ mod tests {
     #[test]
     fn remote_names_cannot_escape() {
         let ok = FileDescriptor::new("b.txt").with_relative_path("dir\\sub");
-        assert_eq!(safe_relative(&ok), Some(PathBuf::from("dir").join("sub").join("b.txt")));
-        for (path, name) in [("..", "x"), ("dir", ".."), ("C:", "x"), ("", "x"), ("a/b", "x"), ("dir", "CON.txt")] {
+        assert_eq!(
+            safe_relative(&ok),
+            Some(PathBuf::from("dir").join("sub").join("b.txt"))
+        );
+        for (path, name) in [
+            ("..", "x"),
+            ("dir", ".."),
+            ("C:", "x"),
+            ("", "x"),
+            ("a/b", "x"),
+            ("dir", "CON.txt"),
+        ] {
             let f = FileDescriptor::new(name).with_relative_path(path);
             assert_eq!(safe_relative(&f), None, "{path:?} {name:?}");
         }
@@ -573,7 +690,10 @@ mod tests {
         std::fs::write(root.join("top").join("a.txt"), b"hello").unwrap();
         std::fs::write(root.join("top").join("inner").join("b.txt"), b"").unwrap();
         let (descs, files) = describe(&[root.join("top")]);
-        let names: Vec<_> = descs.iter().map(|d| (d.relative_path.clone(), d.name.clone(), d.file_size)).collect();
+        let names: Vec<_> = descs
+            .iter()
+            .map(|d| (d.relative_path.clone(), d.name.clone(), d.file_size))
+            .collect();
         assert_eq!(
             names,
             vec![
