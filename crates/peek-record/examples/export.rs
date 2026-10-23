@@ -53,7 +53,9 @@ fn check(mp4_path: &std::path::Path, bmp: &str) -> anyhow::Result<()> {
     dec.decode(&[annexb(&sps), annexb(&pps)].concat())?;
     let (mut decoded, mut saved) = (0, false);
     for n in 1..=count {
-        let Some(sample) = mp4.read_sample(track_id, n)? else { continue };
+        let Some(sample) = mp4.read_sample(track_id, n)? else {
+            continue;
+        };
         // AVCC (length-prefixed) back to Annex B for the decoder.
         let mut data = &sample.bytes[..];
         let mut stream = Vec::new();

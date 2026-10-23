@@ -2,6 +2,8 @@
 
 A fast, quiet remote desktop client written in Rust with egui. RDP first, VNC second.
 
+Website: <https://ulaas.github.io/peek/> (source in `site/`, published by `.github/workflows/pages.yml`).
+
 ## Status
 
 Working today:
@@ -20,6 +22,10 @@ Working today:
 Not yet: SSH, RD Gateway, H.264 (EGFX).
 
 The RDP path has not yet been tested against a live Windows host; VNC is tested end to end against the bundled test server.
+
+## Download
+
+Installers and portable builds for Windows (x64 `.msi`), Linux (x64 `.deb`, `.rpm`) and macOS (Apple silicon `.dmg`, preview) are on the [releases page](https://github.com/ulaas/peek/releases/latest). They are not code-signed yet; the release notes say how to get past the first-launch warning on each system.
 
 ## Use
 
@@ -50,6 +56,10 @@ Shortcuts other than Ctrl+Alt+Enter go to the remote computer while a session ha
 cargo run -p peek-vnc --example testserver -- 5999 [password]   # local VNC test server
 cargo run -p peek-record --features mp4 --example export -- in.peekrec out.mp4 [--check frame.bmp]
 ```
+
+Building needs Rust 1.90+ and CMake (for the bundled Opus); on Linux also `libasound2-dev` and `pkg-config`.
+
+Releases: bump `version` in `Cargo.toml`, add a `## <version>` section to `CHANGELOG.md`, commit, then push a tag `v<version>`. `.github/workflows/release.yml` waits for CI (`.github/workflows/ci.yml`: fmt, clippy, tests on all three systems) to pass on that commit, then builds and publishes the release with that section as its notes. Running the workflow by hand from the Actions tab is a dry run that only uploads the packages as artifacts.
 
 Disk use is kept in check by the build profiles (dependencies built without debug info) and `scripts/hygiene.ps1`. The script removes superseded build outputs older than 3 days and runs `cargo clean` if `target/` passes 12 GB. `dev.ps1` runs it after every cargo command.
 

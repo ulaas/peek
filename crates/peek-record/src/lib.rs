@@ -199,6 +199,9 @@ fn audio_thread(
     let mut resampler = peek_audio::Resampler::default();
     let mut pcm: Vec<i16> = Vec::new();
     let mut pcm_start_ms: f64 = 0.0;
+    // Set by the first chunk. An empty buffer alone is no reason to re-sync:
+    // 10 ms chunks fill 20 ms packets exactly, so it empties after every packet.
+    let mut synced = false;
     let ch = AUDIO_CHANNELS as usize;
     let frame_ms = AUDIO_FRAME as f64 * 1000.0 / AUDIO_RATE as f64;
     let mut packet = vec![0u8; 4000];
@@ -228,9 +231,10 @@ fn audio_thread(
         let arrived_ms = started.elapsed().as_secs_f64() * 1000.0;
         let starts_at = (arrived_ms - dur_ms).max(0.0);
         let buffered_end = pcm_start_ms + (pcm.len() / ch) as f64 * 1000.0 / AUDIO_RATE as f64;
-        if pcm.is_empty() || (starts_at - buffered_end).abs() > 200.0 {
+        if !synced || (starts_at - buffered_end).abs() > 200.0 {
             emit(&mut pcm, &mut pcm_start_ms, true);
             pcm_start_ms = starts_at;
+            synced = true;
         }
         pcm.extend_from_slice(&samples);
         emit(&mut pcm, &mut pcm_start_ms, false);
@@ -603,11 +607,16 @@ mod tests {
         let mut rec = Recorder::start(&path, &[], &fb).unwrap();
         let tap = rec.audio_tap().unwrap();
         // 300 ms of a 44.1 kHz tone in 10 ms chunks, like an RDP server sends.
+        // Paced against a fixed schedule so sleep overshoot on a busy machine
+        // does not add up.
+        let t0 = Instant::now();
         for i in 0..30 {
             let samples: Vec<i16> =
                 (0..441 * 2).map(|j| (((i * 441 + j / 2) as f32 * 0.06).sin() * 9000.0) as i16).collect();
             tap.send(AudioChunk { rate: 44_100, channels: 2, samples }).unwrap();
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(
+                (t0 + Duration::from_millis(10 * (i as u64 + 1))).saturating_duration_since(Instant::now()),
+            );
         }
         std::thread::sleep(Duration::from_millis(30));
         rec.stop().unwrap(); // must not wait for `tap` to be dropped

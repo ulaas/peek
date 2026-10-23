@@ -1,0 +1,71 @@
+<!--
+  Peek MSI (WiX Toolset v5). Built by scripts/package.sh in the release workflow:
+
+    wix build packaging/windows/peek.wxs -arch x64 -ext WixToolset.UI.wixext
+      -d Version=0.5.0 -d BinDir=<folder with peek.exe> -o peek-windows-x64.msi
+
+  Installs for all users into Program Files, adds a Start menu shortcut, puts
+  peek on the PATH, opens .peekrec recordings and offers Peek under "Open with"
+  for .rdp files without taking them over from Remote Desktop Connection.
+  The UpgradeCode must never change: it is how a newer MSI replaces an older one.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Peek" Manufacturer="Peek" Version="$(Version)" Scope="perMachine"
+           UpgradeCode="a010012a-2935-41c1-ac78-d138194be226" Compressed="yes">
+    <SummaryInformation Description="Peek remote desktop client" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Peek is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="peek.ico" SourceFile="peek.ico" />
+    <Property Id="ARPPRODUCTICON" Value="peek.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://ulaas.github.io/peek/" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/ulaas/peek/issues" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+    <ui:WixUI Id="WixUI_Minimal" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Peek">
+        <Component Id="App">
+          <File Id="PeekExe" Source="$(BinDir)\peek.exe" KeyPath="yes" />
+          <Environment Id="Path" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" Permanent="no" />
+
+          <!-- Recordings open in Peek's player. -->
+          <ProgId Id="Peek.Recording" Description="Peek recording" Icon="PeekExe" IconIndex="0">
+            <Extension Id="peekrec" ContentType="application/x-peek-recording">
+              <Verb Id="open" Command="Open" TargetFile="PeekExe" Argument="&quot;%1&quot;" />
+            </Extension>
+          </ProgId>
+
+          <!-- .rdp files: listed under "Open with", the default stays as it is. -->
+          <RegistryValue Root="HKLM" Key="Software\Classes\Peek.RdpFile" Value="Remote Desktop file" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Peek.RdpFile\DefaultIcon" Value="[#PeekExe],0" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Peek.RdpFile\shell\open\command" Value="&quot;[#PeekExe]&quot; &quot;%1&quot;" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\.rdp\OpenWithProgids" Name="Peek.RdpFile" Value="Peek.RdpFile" Type="string" />
+        </Component>
+        <!-- One file per component: WiX can only generate the component GUID then. -->
+        <Component Id="LicenseMit">
+          <File Source="$(BinDir)\LICENSE-MIT" />
+        </Component>
+        <Component Id="LicenseApache">
+          <File Source="$(BinDir)\LICENSE-APACHE" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenu">
+        <Shortcut Id="StartMenuShortcut" Name="Peek" Description="Fast, quiet remote desktop"
+                  Target="[#PeekExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\Peek" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="App" />
+      <ComponentRef Id="LicenseMit" />
+      <ComponentRef Id="LicenseApache" />
+      <ComponentRef Id="StartMenu" />
+    </Feature>
+  </Package>
+</Wix>

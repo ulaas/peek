@@ -1,0 +1,183 @@
+# Builds Peek for Windows, Linux and macOS.
+#
+# Pushing a tag like v0.5.0 builds and publishes a GitHub release with the
+# notes from that version's CHANGELOG.md section, once CI (ci.yml) has passed
+# on the tagged commit: the `ci-gate` job waits for it, so the commit and the
+# tag can be pushed together. Running it by hand (Actions > Release > Run
+# workflow) is a dry run: it builds and uploads the packages as workflow
+# artifacts and publishes nothing.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      skip_ci_gate:
+        description: "Build without waiting for a green CI run on this commit (emergencies only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Build libopus from its vendored source and link it statically, so the
+  # binaries do not depend on a system libopus.
+  OPUS_BUNDLED: "1"
+  OPUS_STATIC: "1"
+
+jobs:
+  # Waits for ci.yml on the same commit, so the commit and the tag can be pushed together: the
+  # builds start once a CI run on that commit is green. Fails if CI fails or is cancelled, or if
+  # no CI run shows up for the commit within 10 minutes.
+  ci-gate:
+    name: Wait for CI on this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for a green CI run
+        if: inputs.skip_ci_gate != true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          waited=0
+          while :; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&per_page=50" \
+              --jq '[.workflow_runs[] | {status, conclusion, url: .html_url}]')
+            total=$(jq length <<<"$runs")
+            if jq -e 'any(.[]; .conclusion == "success")' <<<"$runs" >/dev/null; then
+              echo "CI passed on $SHA: $(jq -r 'first(.[] | select(.conclusion == "success") | .url)' <<<"$runs")"
+              exit 0
+            fi
+            if (( total > 0 )) && ! jq -e 'any(.[]; .status != "completed")' <<<"$runs" >/dev/null; then
+              echo "::error::CI did not pass on $SHA (re-run it, then re-run this release):"
+              jq -r '.[] | "  \(.conclusion): \(.url)"' <<<"$runs"
+              exit 1
+            fi
+            if (( total == 0 && waited >= 600 )); then
+              echo "::error::No CI run for $SHA after 10 minutes. Push the commit to main first (or run CI on it by hand)."
+              exit 1
+            fi
+            echo "Waiting for CI on $SHA ($total run(s), ${waited}s so far)"
+            sleep 60; waited=$((waited + 60))
+          done
+      - name: CI gate skipped
+        if: inputs.skip_ci_gate == true
+        run: echo "::warning::Release built without waiting for CI (skip_ci_gate)."
+
+  build:
+    name: ${{ matrix.name }}
+    needs: ci-gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: peek-windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { name: peek-linux-x64, os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { name: peek-macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config cmake nasm libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev rpm
+
+      - name: Install NASM (faster H.264 encoding) and WiX (MSI installer)
+        if: runner.os == 'Windows'
+        run: |
+          choco install nasm -y --no-progress && echo "C:/Program Files/NASM" >> "$GITHUB_PATH"
+          dotnet tool install --global wix --version 5.0.2
+          export PATH="$PATH:$HOME/.dotnet/tools" && cygpath -w "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+
+      - name: Use the static C runtime on Windows
+        if: runner.os == 'Windows'
+        # peek.exe then runs without the Visual C++ redistributable installed.
+        run: |
+          echo "RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
+          echo "CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc=$(pwd -W)/packaging/windows/static-crt.cmake" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --locked -p peek --target ${{ matrix.target }}
+
+      - name: Package
+        run: bash scripts/package.sh ${{ matrix.target }} ${{ matrix.name }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.name }}.*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum peek-* > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v v="## $version" '$0 == v { on = 1; next } /^## / && on { exit } on' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md has no section '## $version'"
+            exit 1
+          fi
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          # A re-pushed tag reuses its release: refresh notes and replace assets.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Peek ${GITHUB_REF_NAME#v}" --notes-file notes.md "${flags[@]}"
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "Peek ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag "${flags[@]}"
+          fi
