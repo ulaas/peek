@@ -1,0 +1,113 @@
+# Renders the package-manager manifests in packaging/manifests/ for a published
+# release and attaches them to it, ready to submit by hand:
+#
+#   winget/*.yaml     peek-windows-x64.msi   PR to microsoft/winget-pkgs (manifests/u/ulaas/Peek/<version>/)
+#   scoop/peek.json   peek-windows-x64.zip   a Scoop bucket
+#   homebrew/peek.rb  peek-macos-arm64.dmg   a Homebrew tap (Casks/peek.rb)
+#   aur/PKGBUILD      peek-linux-x64.deb     the AUR as peek-rdp-bin (add .SRCINFO with makepkg --printsrcinfo)
+#
+# Placeholders in the templates: @VERSION@ (0.5.0), @TAG@ (v0.5.0), @MSI_VERSION@
+# (numeric part only), @PKGVER@ (- replaced by _), @RELEASE_DATE@ (YYYY-MM-DD),
+# @SHA256_MSI@, @SHA256_MSI_UPPER@, @SHA256_WIN_ZIP@, @SHA256_DMG@, @SHA256_DEB@.
+#
+# Releases made by release.yml are created with GITHUB_TOKEN, which does not
+# fire `release` events for other workflows, so this also runs when the Release
+# workflow finishes. Run it by hand with a tag to (re)render an older release.
+name: Package manifests
+
+on:
+  release:
+    types: [published]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to render manifests for, e.g. v0.5.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: package-manifests-${{ github.event.release.tag_name || inputs.tag || github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  manifests:
+    name: Render and upload manifests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/manifests
+
+      - name: Find the release
+        id: release
+        run: |
+          # A Release dry run (run by hand) has no tag and publishes nothing: skip it.
+          if [[ "$TAG" != v* ]] || ! gh release view "$TAG" --json isDraft --jq '.isDraft' > draft.txt 2>/dev/null; then
+            echo "::notice::No published release for '$TAG'; nothing to do."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(cat draft.txt)" = "true" ]; then
+            echo "::notice::Release $TAG is a draft; nothing to do."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download the release assets
+        if: steps.release.outputs.found == 'true'
+        run: |
+          mkdir -p assets
+          gh release download "$TAG" -D assets \
+            -p peek-windows-x64.msi -p peek-windows-x64.zip -p peek-macos-arm64.dmg -p peek-linux-x64.deb
+          ls -l assets
+
+      - name: Render the manifests
+        if: steps.release.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          sha() { sha256sum "assets/$1" | cut -d' ' -f1; }
+          version=${TAG#v}
+          msi_sha=$(sha peek-windows-x64.msi)
+          published=$(gh release view "$TAG" --json publishedAt --jq '.publishedAt')
+          subst=(
+            -e "s|@VERSION@|$version|g"
+            -e "s|@TAG@|$TAG|g"
+            -e "s|@MSI_VERSION@|${version%%-*}|g"
+            -e "s|@PKGVER@|${version//-/_}|g"
+            -e "s|@RELEASE_DATE@|${published%%T*}|g"
+            -e "s|@SHA256_MSI_UPPER@|${msi_sha^^}|g"
+            -e "s|@SHA256_MSI@|$msi_sha|g"
+            -e "s|@SHA256_WIN_ZIP@|$(sha peek-windows-x64.zip)|g"
+            -e "s|@SHA256_DMG@|$(sha peek-macos-arm64.dmg)|g"
+            -e "s|@SHA256_DEB@|$(sha peek-linux-x64.deb)|g"
+          )
+          mkdir -p out
+          for f in packaging/manifests/winget/*.yaml; do
+            sed "${subst[@]}" "$f" > "out/$(basename "$f")"
+          done
+          sed "${subst[@]}" packaging/manifests/scoop/peek.json > out/peek.scoop.json
+          sed "${subst[@]}" packaging/manifests/homebrew/peek.rb > out/peek.cask.rb
+          sed "${subst[@]}" packaging/manifests/aur/PKGBUILD > out/PKGBUILD
+          if grep -n '@[A-Z0-9_]*@' out/*; then
+            echo "::error::Unfilled placeholders above"
+            exit 1
+          fi
+          jq empty out/peek.scoop.json
+          python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' out/*.yaml
+          for f in out/*; do echo "::group::$f"; cat "$f"; echo "::endgroup::"; done
+
+      - name: Attach them to the release
+        if: steps.release.outputs.found == 'true'
+        run: gh release upload "$TAG" out/* --clobber

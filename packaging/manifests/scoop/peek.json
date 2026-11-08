@@ -1,0 +1,32 @@
+{
+    "version": "@VERSION@",
+    "description": "Fast, quiet RDP and VNC remote desktop client written in Rust",
+    "homepage": "https://ulaas.github.io/peek/",
+    "license": "MIT|Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/ulaas/peek/releases/download/@TAG@/peek-windows-x64.zip",
+            "hash": "@SHA256_WIN_ZIP@",
+            "extract_dir": "peek-windows-x64"
+        }
+    },
+    "bin": "peek.exe",
+    "shortcuts": [
+        [
+            "peek.exe",
+            "Peek"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/ulaas/peek/releases/download/v$version/peek-windows-x64.zip",
+                "extract_dir": "peek-windows-x64"
+            }
+        },
+        "hash": {
+            "url": "$baseurl/SHA256SUMS.txt"
+        }
+    }
+}

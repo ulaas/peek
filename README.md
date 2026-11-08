@@ -2,6 +2,8 @@
 
 A fast, quiet remote desktop client written in Rust with egui. RDP first, VNC second.
 
+![Peek with a VNC session open: connection library on the left, floating session toolbar above the remote screen](docs/shots/session.jpg)
+
 Website: <https://ulaas.github.io/peek/> (source in `site/`, published by `.github/workflows/pages.yml`).
 
 ## Status

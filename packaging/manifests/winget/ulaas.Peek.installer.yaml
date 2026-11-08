@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: ulaas.Peek
+PackageVersion: @VERSION@
+MinimumOSVersion: 10.0.17763.0
+InstallerType: wix
+Scope: machine
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+Commands:
+  - peek
+FileExtensions:
+  - peekrec
+  - rdp
+ReleaseDate: @RELEASE_DATE@
+AppsAndFeaturesEntries:
+  - DisplayVersion: @MSI_VERSION@
+    UpgradeCode: '{A010012A-2935-41C1-AC78-D138194BE226}'
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/ulaas/peek/releases/download/@TAG@/peek-windows-x64.msi
+    InstallerSha256: @SHA256_MSI_UPPER@
+ManifestType: installer
+ManifestVersion: 1.6.0

@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: ulaas.Peek
+PackageVersion: @VERSION@
+PackageLocale: en-US
+Publisher: ulaas
+PublisherUrl: https://github.com/ulaas
+PublisherSupportUrl: https://github.com/ulaas/peek/issues
+PackageName: Peek
+PackageUrl: https://ulaas.github.io/peek/
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/ulaas/peek/blob/main/LICENSE-MIT
+ShortDescription: Fast, quiet RDP and VNC remote desktop client written in Rust.
+Description: |-
+  Peek connects to Windows computers over RDP and to Linux desktops, Raspberry Pis and Macs over VNC.
+  It has tabs, a command palette, a connection library with passwords in the system keychain,
+  two-way clipboard, remote audio and session recording.
+Moniker: peek-rdp
+Tags:
+  - rdp
+  - vnc
+  - remote-desktop
+  - remote-access
+  - rust
+ReleaseNotesUrl: https://github.com/ulaas/peek/releases/tag/@TAG@
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

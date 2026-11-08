@@ -1,0 +1,30 @@
+# Maintainer: Aydemir Şahin <ulaas@users.noreply.github.com>
+# Binary package built from the release .deb. Named peek-rdp-bin because Arch
+# already has an unrelated "peek" (GIF recorder) that also installs /usr/bin/peek.
+pkgname=peek-rdp-bin
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc="Fast, quiet RDP and VNC remote desktop client written in Rust"
+arch=('x86_64')
+url="https://ulaas.github.io/peek/"
+license=('MIT' 'Apache-2.0')
+depends=('glibc>=2.39' 'gcc-libs' 'alsa-lib' 'hicolor-icon-theme')
+optdepends=('libxkbcommon: keyboard handling'
+            'libxkbcommon-x11: keyboard handling on X11'
+            'wayland: Wayland support'
+            'libx11: X11 support'
+            'libxcursor: X11 cursors'
+            'libxi: X11 input'
+            'libxrandr: X11 display sizes'
+            'vulkan-icd-loader: Vulkan rendering'
+            'libglvnd: OpenGL rendering')
+provides=('peek-rdp')
+conflicts=('peek' 'peek-rdp')
+options=('!strip' '!debug')
+source=("peek-@VERSION@.deb::https://github.com/ulaas/peek/releases/download/@TAG@/peek-linux-x64.deb")
+sha256sums=('@SHA256_DEB@')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  rm -rf "$pkgdir/usr/share/doc"
+}
