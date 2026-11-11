@@ -21,8 +21,8 @@ fn main() -> eframe::Result {
     // A copy of Peek started by an update to run the Windows installer once Peek itself has closed.
     let mut args = std::env::args_os().skip(1);
     if args.next().is_some_and(|a| a == update::FINISH_ARG) {
-        if let (Some(msi), Some(exe)) = (args.next(), args.next()) {
-            update::finish_update(msi.as_ref(), exe.as_ref());
+        if let (Some(msi), Some(exe), Some(sha256)) = (args.next(), args.next(), args.next()) {
+            update::finish_update(msi.as_ref(), exe.as_ref(), &sha256.to_string_lossy());
         }
         return Ok(());
     }

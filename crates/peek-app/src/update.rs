@@ -843,8 +843,8 @@ pub struct Plan {
 pub enum Staged {
     /// The new executable is in place; starting it finishes the update.
     Swapped(Swap),
-    /// A verified installer, to run once Peek has closed.
-    Installer(PathBuf),
+    /// A verified installer and its SHA-256, to run once Peek has closed.
+    Installer(PathBuf, String),
     /// A verified disk image for the user to open.
     DiskImage(PathBuf),
 }
@@ -901,7 +901,7 @@ pub fn install(
     };
     let staged = fetch().and_then(|bytes| stage(plan, &file, bytes, &release.version, progress));
     // The installer and the disk image are still needed; everything else goes.
-    if !matches!(staged, Ok(Staged::Installer(_) | Staged::DiskImage(_))) {
+    if !matches!(staged, Ok(Staged::Installer(..) | Staged::DiskImage(_))) {
         let _ = std::fs::remove_dir_all(&plan.work);
     }
     staged.map(|s| (release, s))
@@ -913,7 +913,7 @@ fn stage(plan: &Plan, file: &Path, bytes: Vec<u8>, version: &str, progress: &Pro
     let windows = match plan.kind {
         InstallKind::WindowsPortable => true,
         InstallKind::LinuxBinary => false,
-        InstallKind::WindowsMsi => return Ok(Staged::Installer(file.to_path_buf())),
+        InstallKind::WindowsMsi => return Ok(Staged::Installer(file.to_path_buf(), hex(&Sha256::digest(&bytes)))),
         InstallKind::MacApp => return Ok(Staged::DiskImage(file.to_path_buf())),
         InstallKind::Managed(_) => return Err(plan.kind.advice().0.into()),
     };
@@ -950,7 +950,7 @@ fn start_new(swap: &Swap) -> Result<(), String> {
 /// Hand the installer to a helper: a copy of this Peek outside the install
 /// folder, which waits until Peek has closed, runs the installer and starts
 /// whatever Peek is installed afterwards (see [`finish_update`]).
-fn start_installer(msi: &Path, exe: &Path) -> Result<(), String> {
+fn start_installer(msi: &Path, sha256: &str, exe: &Path) -> Result<(), String> {
     let dir = msi.parent().ok_or("the installer has no folder")?;
     let helper = dir.join("peek-update-helper.exe");
     std::fs::copy(exe, &helper).map_err(|e| format!("Cannot prepare the installer: {e}"))?;
@@ -958,6 +958,7 @@ fn start_installer(msi: &Path, exe: &Path) -> Result<(), String> {
         .arg(FINISH_ARG)
         .arg(msi)
         .arg(exe)
+        .arg(sha256)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .spawn()
@@ -974,16 +975,52 @@ fn msiexec() -> PathBuf {
     }
 }
 
-/// The helper's whole job (`peek --finish-update <msi> <installed exe>`):
-/// wait for the Peek that started it to exit, run the MSI with its progress
-/// window (Windows shows its own permission prompt), then start the installed
-/// Peek again. If the prompt is declined or the installer fails, Windows
-/// Installer leaves the old version in place, and that is what starts.
-pub fn finish_update(msi: &Path, exe: &Path) {
+/// Open the installer so that nothing can write, rename or delete it while
+/// the handle lives, and check it is still the file that was verified. It sat
+/// in a folder the user can write to, and Windows Installer runs it elevated.
+fn open_verified(msi: &Path, sha256: &str) -> Result<std::fs::File, String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(1); // FILE_SHARE_READ: others may read, nothing else
+    }
+    let mut file = options.open(msi).map_err(|e| format!("The installer could not be opened ({e})"))?;
+    let mut hash = Sha256::new();
+    std::io::copy(&mut file, &mut hash).map_err(|e| format!("The installer could not be read ({e})"))?;
+    if hex(&hash.finalize()) != sha256.to_ascii_lowercase() {
+        return Err("The installer changed after it was checked, so it was not run".into());
+    }
+    Ok(file)
+}
+
+/// The helper's whole job (`peek --finish-update <msi> <installed exe> <sha256>`):
+/// wait for the Peek that started it to exit, check the MSI is still the one
+/// that was verified, run it with its progress window (Windows shows its own
+/// permission prompt), then start the installed Peek again. If the prompt is
+/// declined or the installer fails, Windows Installer leaves the old version
+/// in place, and that is what starts.
+pub fn finish_update(msi: &Path, exe: &Path, sha256: &str) {
     let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
     std::thread::sleep(Duration::from_millis(500));
-    let status = Command::new(msiexec()).arg("/i").arg(msi).args(["/passive", "/norestart"]).status();
-    let result = match status.map(|s| s.code()) {
+    // Held until the installer is done, so the file it reads is the file that was hashed.
+    let held = open_verified(msi, sha256);
+    let status = match &held {
+        Ok(_) => Command::new(msiexec()).arg("/i").arg(msi).args(["/passive", "/norestart"]).status().map(|s| s.code()),
+        Err(_) => Ok(None),
+    };
+    let result = match (&held, status) {
+        (Err(why), _) => format!("failed:{why}; this is still the previous version."),
+        (Ok(_), status) => installer_result(status),
+    };
+    drop(held);
+    let _ = std::fs::remove_file(msi);
+    let _ = Command::new(exe).env(RESULT_ENV, result).spawn();
+}
+
+fn installer_result(status: std::io::Result<Option<i32>>) -> String {
+    match status {
         // 3010: installed, and Windows wants a restart at some point.
         Ok(Some(0 | 3010)) => format!("ok:{}", logo::VERSION),
         Ok(Some(1602)) => "failed:The update was cancelled; this is still the previous version.".into(),
@@ -992,9 +1029,7 @@ pub fn finish_update(msi: &Path, exe: &Path) {
             code.map_or("unknown".into(), |c| c.to_string())
         ),
         Err(e) => format!("failed:The installer did not start ({e}); this is still the previous version."),
-    };
-    let _ = std::fs::remove_file(msi);
-    let _ = Command::new(exe).env(RESULT_ENV, result).spawn();
+    }
 }
 
 /// What a restart after an update has to say: `Ok` for a success message, `Err` for a failure.
@@ -1281,7 +1316,7 @@ impl Updater {
     pub fn relaunch(&mut self) -> Result<(), String> {
         let result = match (&self.staged, &self.exe) {
             (Some(Staged::Swapped(swap)), _) => start_new(swap),
-            (Some(Staged::Installer(msi)), Some(exe)) => start_installer(msi, exe),
+            (Some(Staged::Installer(msi, sha256)), Some(exe)) => start_installer(msi, sha256, exe),
             _ => Err("There is no update to restart into.".into()),
         };
         if let Err(e) = &result {
@@ -1856,8 +1891,16 @@ mod tests {
             let dir = temp(name);
             let plan = plan(&dir, kind);
             let (_, staged) = run(&mock, &plan).unwrap();
-            let (Staged::Installer(path) | Staged::DiskImage(path)) = &staged else { panic!("{staged:?}") };
-            assert_eq!(matches!(staged, Staged::Installer(_)), kind == InstallKind::WindowsMsi);
+            let (Staged::Installer(path, _) | Staged::DiskImage(path)) = &staged else { panic!("{staged:?}") };
+            assert_eq!(matches!(staged, Staged::Installer(..)), kind == InstallKind::WindowsMsi);
+            if let Staged::Installer(_, sha256) = &staged {
+                // The helper runs the installer only while it still has this hash.
+                assert!(open_verified(path, sha256).is_ok());
+                assert!(open_verified(path, &sha256.to_uppercase()).is_ok());
+                std::fs::write(path, b"something else").unwrap();
+                assert!(open_verified(path, sha256).unwrap_err().contains("changed"));
+                std::fs::write(path, b"installer bytes").unwrap();
+            }
             assert_eq!(*path, plan.work.join(name));
             assert_eq!(std::fs::read(path).unwrap(), b"installer bytes");
             assert_eq!(std::fs::read(&plan.exe).unwrap(), b"old", "the installer is not run here");
