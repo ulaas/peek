@@ -81,11 +81,11 @@ mod imp {
                 if take {
                     let extended = k.flags & LLKHF_EXTENDED != 0;
                     if let Some(key) = to_keycode(k.scanCode, extended) {
-                        if let Ok(g) = SINK.lock() {
-                            if let Some((tx, ctx)) = g.as_ref() {
-                                let _ = tx.send((key, k.flags & LLKHF_UP == 0));
-                                ctx.request_repaint();
-                            }
+                        if let Ok(g) = SINK.lock()
+                            && let Some((tx, ctx)) = g.as_ref()
+                        {
+                            let _ = tx.send((key, k.flags & LLKHF_UP == 0));
+                            ctx.request_repaint();
                         }
                         return 1; // swallow: the local OS never sees it
                     }
