@@ -248,6 +248,11 @@ impl PlayerView {
         });
     }
 
+    /// An MP4 export is running; closing Peek would cut it off.
+    pub fn exporting(&self) -> bool {
+        matches!(self.export, Some(ExportState::Running(_)))
+    }
+
     /// Ask where to save, then export on a background thread.
     pub fn export_dialog(&mut self, ctx: &egui::Context) {
         if matches!(self.export, Some(ExportState::Running(_))) {

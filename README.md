@@ -20,6 +20,7 @@ Working today:
 - Keyboard grab on Windows: Windows key, Alt+Tab and Print Screen go to the remote computer
 - Auto-reconnect with backoff, Wake-on-LAN, screenshot to clipboard
 - Session recording (`.peekrec`: lossless picture, Opus sound) with a built-in player and MP4 export (H.264 + AAC)
+- Update check once a day and one-click update, verified by checksum (see [Updates](#updates))
 
 Not yet: SSH, RD Gateway, H.264 (EGFX).
 
@@ -28,6 +29,25 @@ The RDP path has not yet been tested against a live Windows host; VNC is tested 
 ## Download
 
 Installers and portable builds for Windows (x64 `.msi`), Linux (x64 `.deb`, `.rpm`) and macOS (Apple silicon `.dmg`, preview) are on the [releases page](https://github.com/ulaas/peek/releases/latest). They are not code-signed yet; the release notes say how to get past the first-launch warning on each system.
+
+## Updates
+
+Peek looks for a new version once a day, when it starts, and offers it in *About* and *Settings*. **Check for updates** there, or in the command palette, asks right away.
+
+**What Peek contacts.** The check is one HTTPS request to GitHub, `https://api.github.com/repos/ulaas/peek/releases/latest`. It carries a `User-Agent: peek/<version>` header and nothing else of Peek's: no identifier, no settings, nothing about your connections. GitHub sees the address the request comes from, as any web server does. Peek has no server of its own. Turn the daily check off under *Settings → Updates*; Peek then contacts GitHub only when you ask it to.
+
+**What an update does.** Nothing is downloaded until you click **Update and restart**. Peek then fetches the file for its kind of install from `https://github.com/ulaas/peek/releases/`, and installs it only if its SHA-256 matches the release's `SHA256SUMS.txt` and the digest GitHub reports for the file. A restart closes open sessions, so Peek asks first when there are any. You can cancel while it downloads; if anything fails, the installed version stays as it was.
+
+| Install | What the update does |
+|---|---|
+| Windows, portable zip | Replaces `peek.exe` in place and restarts. The previous one is kept as `peek.exe.old` until the next start. |
+| Windows, MSI | Closes Peek, runs the new MSI (Windows asks for permission) and starts Peek again. If you decline, the previous version starts again and says so. |
+| Linux, `~/.local/bin/peek` or the unpacked archive | Replaces the `peek` binary in place and restarts. |
+| Linux, `.deb`, `.rpm` or AUR package | Nothing by itself: update with your package manager. Peek shows the release page. |
+| macOS | Downloads and checks the new disk image and opens it; quit Peek and drag the new one to Applications. |
+| Scoop, Homebrew | Nothing by itself: `scoop update peek` or `brew upgrade --cask peek`. |
+
+A copy in a folder Peek cannot write to, and a debug build, only point to the release page. Drafts and pre-releases are never offered.
 
 ## Use
 
@@ -74,7 +94,7 @@ Disk use is kept in check by the build profiles (dependencies built without debu
 | `peek-vnc` | RFB client and decoders; test server example |
 | `peek-record` | `.peekrec` writer and player |
 | `peek-store` | Library, settings, known hosts, keychain vault, `.rdp` import |
-| `peek-app` | The egui application (`peek` binary) |
+| `peek-app` | The egui application (`peek` binary), including the update check and self-update (`update.rs`) |
 
 Logging: set `PEEK_LOG=debug`. Rendering defaults to DX12 and the power-saving GPU on Windows; override with `WGPU_BACKEND` / `WGPU_POWER_PREF`.
 

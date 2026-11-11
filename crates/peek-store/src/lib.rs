@@ -307,11 +307,29 @@ pub struct Settings {
     /// Grab Alt+Tab, the Windows key etc. while a session has focus.
     #[serde(default = "yes")]
     pub grab_keyboard: bool,
+    /// Ask GitHub once a day, at startup, whether a newer Peek exists.
+    #[serde(default = "yes")]
+    pub check_updates: bool,
+    /// When the last update check got an answer (Unix seconds).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_update_check: Option<u64>,
+    /// The newer version the last check found, kept until it is installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_seen: Option<String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: Theme::System, recordings_dir: None, show_stats: false, sidebar_open: true, grab_keyboard: true }
+        Self {
+            theme: Theme::System,
+            recordings_dir: None,
+            show_stats: false,
+            sidebar_open: true,
+            grab_keyboard: true,
+            check_updates: true,
+            last_update_check: None,
+            update_seen: None,
+        }
     }
 }
 
@@ -606,6 +624,35 @@ resize_remote = true
             assert_eq!(toml::from_str::<ProfileOptions>(&text).unwrap(), o, "{text}");
         }
         assert_eq!(Resolution::fixed(1921, 50), Resolution::Fixed { width: 1920, height: 200 });
+    }
+
+    #[test]
+    fn update_check_default_and_legacy_settings() {
+        let fresh = Settings::default();
+        assert!(fresh.check_updates, "the update check is on unless turned off");
+        assert_eq!((fresh.last_update_check, fresh.update_seen.clone()), (None, None));
+        // Settings saved before the update check existed still load, with the check on.
+        let old: Settings = toml::from_str(
+            "theme = \"dark\"
+show_stats = true
+sidebar_open = false
+grab_keyboard = false
+",
+        )
+        .unwrap();
+        assert_eq!(old.theme, Theme::Dark);
+        assert!(old.check_updates && old.last_update_check.is_none() && old.update_seen.is_none());
+        assert_eq!(toml::from_str::<Settings>("").unwrap(), fresh);
+        // Turned off stays off, and the last check survives a save.
+        let s = Settings {
+            check_updates: false,
+            last_update_check: Some(1_794_000_000),
+            update_seen: Some("0.6.0".into()),
+            ..Default::default()
+        };
+        let text = toml::to_string_pretty(&s).unwrap();
+        assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s, "{text}");
+        assert!(!toml::to_string_pretty(&fresh).unwrap().contains("last_update_check"));
     }
 
     #[test]

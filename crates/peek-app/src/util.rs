@@ -68,6 +68,34 @@ pub fn open_file(path: &std::path::Path) {
     let _ = std::process::Command::new("xdg-open").arg(path).spawn();
 }
 
+/// Whether `url` is a plain https address that is safe to hand to the system's opener.
+fn is_https_url(url: &str) -> bool {
+    url.strip_prefix("https://").is_some_and(|rest| {
+        !rest.is_empty()
+            && !rest.starts_with('/')
+            && rest
+                .chars()
+                .all(|c| c.is_ascii_graphic() && !matches!(c, '"' | '\'' | '`' | '\\' | '<' | '>' | '|' | '^'))
+    })
+}
+
+/// Open a web page in the default browser. Only https addresses are opened;
+/// returns whether the address was accepted.
+pub fn open_url(url: &str) -> bool {
+    if !is_https_url(url) {
+        tracing::warn!("not opening {url:?}: only https addresses are opened");
+        return false;
+    }
+    #[cfg(windows)]
+    let cmd = "explorer";
+    #[cfg(target_os = "macos")]
+    let cmd = "open";
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let cmd = "xdg-open";
+    // Explorer reports failure even when the browser opened, so only the launch counts.
+    std::process::Command::new(cmd).arg(url).spawn().is_ok()
+}
+
 /// Show a file selected in the file manager (its folder elsewhere).
 pub fn reveal_file(path: &std::path::Path) {
     #[cfg(windows)]
@@ -84,10 +112,21 @@ pub fn reveal_file(path: &std::path::Path) {
 
 /// Where Peek writes its log: %LOCALAPPDATA%\Peek\logs (or ~/.local/state/peek/logs).
 pub fn log_dir() -> Option<std::path::PathBuf> {
+    state_dir().map(|d| d.join("logs"))
+}
+
+/// Peek's own folder for local state: %LOCALAPPDATA%\Peek (or ~/.local/state/peek).
+fn state_dir() -> Option<std::path::PathBuf> {
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        return Some(std::path::PathBuf::from(local).join("Peek").join("logs"));
+        return Some(std::path::PathBuf::from(local).join("Peek"));
     }
-    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/state/peek/logs"))
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/state/peek"))
+}
+
+/// Where a downloaded update waits until it is installed: next to the logs,
+/// in a folder only this user writes to.
+pub fn update_dir() -> Option<std::path::PathBuf> {
+    state_dir().map(|d| d.join("update"))
 }
 
 pub fn safe_file_name(s: &str) -> String {
@@ -103,6 +142,24 @@ mod tests {
         assert_eq!(civil(0), (1970, 1, 1));
         assert_eq!(civil(20_742), (2026, 10, 16));
         assert_eq!(civil(11_016), (2000, 2, 29));
+    }
+
+    #[test]
+    fn only_https_urls_open() {
+        assert!(is_https_url("https://github.com/ulaas/peek/releases/tag/v0.6.0"));
+        for bad in [
+            "http://github.com/ulaas/peek",
+            "file:///etc/passwd",
+            "https://",
+            "https:///x",
+            "https://github.com/a b",
+            "https://github.com/\"&calc",
+            "C:\\Windows\\System32\\calc.exe",
+            "",
+        ] {
+            assert!(!is_https_url(bad), "{bad}");
+            assert!(!open_url(bad), "{bad}");
+        }
     }
 }
 

@@ -8,6 +8,7 @@ mod logo;
 mod mark;
 mod player;
 mod theme;
+mod update;
 mod util;
 mod view;
 mod widgets;
@@ -15,6 +16,14 @@ mod widgets;
 fn main() -> eframe::Result {
     if std::env::args().nth(1).is_some_and(|a| a == "--version" || a == "-V") {
         println!("{}", logo::version_line());
+        return Ok(());
+    }
+    // A copy of Peek started by an update to run the Windows installer once Peek itself has closed.
+    let mut args = std::env::args_os().skip(1);
+    if args.next().is_some_and(|a| a == update::FINISH_ARG) {
+        if let (Some(msi), Some(exe)) = (args.next(), args.next()) {
+            update::finish_update(msi.as_ref(), exe.as_ref());
+        }
         return Ok(());
     }
 

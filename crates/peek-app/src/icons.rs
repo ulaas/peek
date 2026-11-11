@@ -1,8 +1,10 @@
 //! Phosphor icon font (MIT, https://phosphoricons.com), regular and fill weights.
 //! Only the glyphs Peek uses are named here; both weights share code points.
 
+pub const ARROW_CIRCLE_UP: &str = "\u{E030}";
 pub const ARROW_CLOCKWISE: &str = "\u{E036}";
 pub const ARROW_RIGHT: &str = "\u{E06C}";
+pub const ARROW_SQUARE_OUT: &str = "\u{E5DE}";
 pub const CAMERA: &str = "\u{E10E}";
 pub const CARET_DOWN: &str = "\u{E136}";
 pub const CHART_BAR: &str = "\u{E150}";

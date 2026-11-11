@@ -4,6 +4,7 @@ use crate::keymap;
 use crate::logo;
 use crate::player::PlayerView;
 use crate::theme;
+use crate::update::{self, Updater};
 use crate::util;
 use crate::view::{Phase, SessionView, ToastKind, ViewAction};
 use crate::widgets;
@@ -76,6 +77,16 @@ enum Command {
     Home,
     About,
     ExportMp4,
+    CheckUpdates,
+}
+
+/// An update asking before it goes on, because the restart cuts off sessions or an export.
+#[derive(Clone, Copy, PartialEq)]
+enum UpdateConfirm {
+    /// Before anything is downloaded.
+    Start,
+    /// The update is ready; sessions were opened or an export started while it downloaded.
+    Restart,
 }
 
 struct CertWarning {
@@ -112,6 +123,10 @@ pub struct PeekApp {
     logo: egui::TextureHandle,
     /// Session shown last frame, to hand it keyboard focus on tab switches.
     last_shown: Option<u64>,
+    updater: Updater,
+    update_confirm: Option<UpdateConfirm>,
+    /// The user agreed that the update restarts Peek in the middle of sessions or an export.
+    restart_agreed: bool,
 }
 
 /// Credentials are keyed by endpoint so quick connect and saved
@@ -275,6 +290,7 @@ impl PeekApp {
             Store::in_memory(std::env::temp_dir().join("peek"))
         });
         theme::install(&cc.egui_ctx, store.settings.theme);
+        let updater = Updater::new(store.settings.update_seen.as_deref());
         let mut app = Self {
             rt,
             store,
@@ -300,7 +316,24 @@ impl PeekApp {
             about_open: false,
             last_shown: None,
             logo: logo::texture(&cc.egui_ctx),
+            updater,
+            update_confirm: None,
+            restart_agreed: false,
         };
+        app.updater.clean_up();
+        match Updater::restart_note() {
+            Some(Ok(text)) => app.toast_for(text, ToastKind::Success, 8),
+            Some(Err(text)) => app.toast_for(text, ToastKind::Warning, 12),
+            None => {}
+        }
+        if app.updater.version().is_none() {
+            app.store.settings.update_seen = None;
+        }
+        // Once a day, unless turned off. A debug build is a developer's and only checks when asked.
+        let s = &app.store.settings;
+        if !cfg!(debug_assertions) && update::check_due(s.check_updates, s.last_update_check, peek_store::now_unix()) {
+            app.updater.check(false, Self::update_notify(&cc.egui_ctx));
+        }
         // Started with a file or address: that tab gets the keyboard, not quick connect.
         app.focus_quick = arg.is_none();
         match arg {
@@ -313,7 +346,12 @@ impl PeekApp {
     }
 
     fn toast(&mut self, text: impl Into<String>, kind: ToastKind) {
-        self.toasts.push(Toast { text: text.into(), kind, until: Instant::now() + Duration::from_secs(4) });
+        self.toast_for(text, kind, 4);
+    }
+
+    /// A toast that stays for `secs`, for news that should not be missed.
+    fn toast_for(&mut self, text: impl Into<String>, kind: ToastKind, secs: u64) {
+        self.toasts.push(Toast { text: text.into(), kind, until: Instant::now() + Duration::from_secs(secs) });
     }
 
     fn save_library(&mut self) {
@@ -621,7 +659,237 @@ impl PeekApp {
                     p.export_dialog(ctx);
                 }
             }
+            Command::CheckUpdates => {
+                // About shows the answer and, if there is one, the update.
+                self.updater.check(true, Self::update_notify(ctx));
+                self.about_open = true;
+            }
         }
+    }
+
+    // ------------------------------------------------------------------ updates
+
+    /// What a restart would cut off, in words; `None` if Peek is idle.
+    fn restart_interrupts(&self) -> Option<String> {
+        let sessions = self.tabs.iter().filter(|t| matches!(t, Tab::Session(s) if s.is_live())).count();
+        let exporting = self.tabs.iter().any(|t| matches!(t, Tab::Player(p) if p.exporting()));
+        let mut parts = Vec::new();
+        match sessions {
+            0 => {}
+            1 => parts.push("disconnects the open session".to_string()),
+            n => parts.push(format!("disconnects the {n} open sessions")),
+        }
+        if exporting {
+            parts.push("stops the MP4 export in progress".to_string());
+        }
+        (!parts.is_empty()).then(|| parts.join(" and "))
+    }
+
+    /// Wakes the UI when an update thread has something to show.
+    fn update_notify(ctx: &egui::Context) -> std::sync::Arc<dyn Fn() + Send + Sync> {
+        let ctx = ctx.clone();
+        std::sync::Arc::new(move || ctx.request_repaint())
+    }
+
+    /// The click on "Update and restart". Nothing is downloaded before it; if
+    /// the restart would cut something off, it asks first.
+    fn begin_update(&mut self, ctx: &egui::Context) {
+        let kind = self.updater.kind();
+        if kind.action().is_none() {
+            return;
+        }
+        // The disk image on macOS is only opened: nothing restarts.
+        if self.restart_interrupts().is_some() && kind != update::InstallKind::MacApp {
+            self.update_confirm = Some(UpdateConfirm::Start);
+        } else {
+            self.restart_agreed = false;
+            self.updater.install(Self::update_notify(ctx));
+        }
+    }
+
+    /// Hand over to the new version and close. If it does not start, the
+    /// previous version is still in place and Peek stays open.
+    fn restart_for_update(&mut self, ctx: &egui::Context) {
+        // Saved now: the new Peek reads the settings while this one is still closing.
+        self.save_settings();
+        match self.updater.relaunch() {
+            Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Err(e) => self.toast_for(e, ToastKind::Warning, 12),
+        }
+    }
+
+    fn poll_updates(&mut self, ctx: &egui::Context) {
+        for event in self.updater.poll() {
+            match event {
+                update::Event::Checked { found, manual } => {
+                    self.store.settings.last_update_check = Some(peek_store::now_unix());
+                    self.store.settings.update_seen = found.clone();
+                    self.save_settings();
+                    match found {
+                        Some(v) => {
+                            self.toast_for(format!("Peek {v} is available. Open About to update."), ToastKind::Info, 8)
+                        }
+                        None if manual => self.toast("Peek is up to date", ToastKind::Success),
+                        None => {}
+                    }
+                }
+                update::Event::CheckFailed { error, manual } => {
+                    tracing::warn!("update check failed: {error}");
+                    if manual {
+                        self.toast_for(format!("Could not check for updates: {error}"), ToastKind::Warning, 8);
+                    }
+                }
+                update::Event::Ready => {
+                    if self.restart_interrupts().is_none() || self.restart_agreed {
+                        self.restart_for_update(ctx);
+                    } else {
+                        self.update_confirm = Some(UpdateConfirm::Restart);
+                    }
+                }
+                update::Event::Downloaded(image) => {
+                    util::open_file(&image);
+                    let text = "The update is open. Quit Peek, then drag the new Peek to Applications.";
+                    self.toast_for(text, ToastKind::Success, 12);
+                }
+                update::Event::InstallFailed(error) => {
+                    tracing::warn!("update failed: {error}");
+                    self.toast_for(format!("The update was not installed: {error}"), ToastKind::Warning, 12);
+                }
+            }
+        }
+    }
+
+    /// Update status and actions, shown in About and in Settings.
+    fn update_panel(&mut self, ui: &mut egui::Ui) {
+        use update::{Phase, Stage};
+        let ctx = ui.ctx().clone();
+        let version = self.updater.version().unwrap_or_default().to_string();
+        let page = self.updater.page().to_string();
+        let phase = self.updater.phase().clone();
+        let release_page = |ui: &mut egui::Ui| {
+            if ui.button(format!("{}  Release page", icons::ARROW_SQUARE_OUT)).on_hover_text(&page).clicked() {
+                util::open_url(&page);
+            }
+        };
+        match &phase {
+            Phase::Idle => {}
+            Phase::Checking => {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Checking for updates…");
+                });
+            }
+            Phase::UpToDate => {
+                let text = format!("{}  Peek {} is the latest version", icons::CHECK_CIRCLE, logo::VERSION);
+                ui.label(RichText::new(text).color(theme::OK));
+            }
+            Phase::CheckFailed(e) => {
+                let text = format!("{}  Could not check for updates", icons::WARNING);
+                ui.label(RichText::new(text).color(theme::WARN));
+                ui.label(RichText::new(e).small().weak());
+            }
+            Phase::Available => {
+                let kind = self.updater.kind();
+                let (advice, command) = kind.advice();
+                let text = format!("{}  Peek {version} is available", icons::ARROW_CIRCLE_UP);
+                ui.label(RichText::new(text).color(theme::accent(ui)).strong());
+                ui.label(RichText::new(advice).small().weak());
+                if let Some(command) = command {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(command).monospace());
+                        if widgets::icon_button_sized(ui, icons::COPY, "Copy the command", 22.0, None).clicked() {
+                            ui.ctx().copy_text(command.to_string());
+                        }
+                    });
+                }
+                ui.add_space(2.0);
+                ui.horizontal(|ui| {
+                    if let Some(label) = kind.action()
+                        && widgets::primary_button(ui, label, Vec2::new(170.0, 30.0)).clicked()
+                    {
+                        self.begin_update(&ctx);
+                    }
+                    release_page(ui);
+                });
+            }
+            Phase::Installing => {
+                let mut cancel = false;
+                if let Some(p) = self.updater.progress() {
+                    let (done, total) = p.bytes();
+                    let (label, f) = match p.stage() {
+                        _ if p.cancelled() => ("Cancelling…".to_string(), 0.0),
+                        Stage::Checking => ("Looking up the latest release…".to_string(), 0.0),
+                        Stage::Downloading => {
+                            (format!("Downloading Peek {version}"), done as f32 / total.max(1) as f32)
+                        }
+                        Stage::Verifying => ("Checking the download…".to_string(), 1.0),
+                        Stage::Installing => (format!("Installing Peek {version}…"), 1.0),
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(label).font(theme::semibold(13.5)));
+                        if p.stage() == Stage::Downloading && total > 0 {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let text = format!("{} of {}", util::human_bytes(done), util::human_bytes(total));
+                                ui.label(RichText::new(text).small().weak());
+                            });
+                        }
+                    });
+                    ui.add(egui::ProgressBar::new(f.clamp(0.0, 1.0)).desired_height(6.0).fill(theme::accent(ui)));
+                    ui.add_space(2.0);
+                    // Once the new version is being put in place there is nothing left to stop.
+                    if !p.cancelled() && p.stage() != Stage::Installing {
+                        cancel = widgets::secondary_button(ui, "Cancel", Vec2::new(72.0, 26.0)).clicked();
+                    }
+                }
+                if cancel {
+                    self.updater.cancel();
+                }
+            }
+            Phase::Ready => {
+                let text = format!("{}  Peek {version} is ready", icons::CHECK_CIRCLE);
+                ui.label(RichText::new(text).color(theme::OK).strong());
+                ui.label(RichText::new("Restart Peek to finish the update.").small().weak());
+                if widgets::primary_button(ui, "Restart now", Vec2::new(130.0, 30.0)).clicked() {
+                    if self.restart_interrupts().is_some() {
+                        self.update_confirm = Some(UpdateConfirm::Restart);
+                    } else {
+                        self.restart_for_update(&ctx);
+                    }
+                }
+            }
+            Phase::Opened => {
+                let text = format!("{}  Peek {version} is downloaded and checked", icons::CHECK_CIRCLE);
+                ui.label(RichText::new(text).color(theme::OK).strong());
+                ui.label(
+                    RichText::new("Its disk image is open. Quit Peek, then drag the new Peek to Applications.")
+                        .small()
+                        .weak(),
+                );
+            }
+            Phase::Failed(e) => {
+                let text = format!("{}  The update was not installed", icons::WARNING);
+                ui.label(RichText::new(text).color(theme::DANGER).strong());
+                ui.label(RichText::new(e).small());
+                ui.horizontal(|ui| {
+                    if ui.button("Try again").clicked() {
+                        self.begin_update(&ctx);
+                    }
+                    release_page(ui);
+                });
+            }
+        }
+        ui.horizontal(|ui| {
+            let idle = !self.updater.busy() && phase != Phase::Ready;
+            let button = egui::Button::new(format!("{}  Check for updates", icons::ARROW_CLOCKWISE));
+            if ui.add_enabled(idle, button).clicked() {
+                self.updater.check(true, Self::update_notify(&ctx));
+            }
+            let last = match self.store.settings.last_update_check {
+                Some(t) => format!("Last checked {}", util::ago(t)),
+                None => "Not checked yet".to_string(),
+            };
+            ui.label(RichText::new(last).small().weak());
+        });
     }
 
     fn open_editor(&mut self, id: Option<Uuid>) {
@@ -879,7 +1147,13 @@ impl PeekApp {
                     ui.label(RichText::new(self.store.paths.config.display().to_string()).small());
                     ui.end_row();
                 });
-                ui.add_space(12.0);
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(4.0);
+                self.update_panel(ui);
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(8.0);
                 ui.label(
                     RichText::new("RDP by IronRDP · UI by egui · icons by Phosphor (MIT). Peek's VNC client, recorder and widgets are its own.")
                         .small()
@@ -1703,6 +1977,15 @@ impl PeekApp {
                     }
                 });
                 ui.add_space(8.0);
+                ui.label(RichText::new("Updates").strong());
+                changed |= ui
+                    .checkbox(&mut self.store.settings.check_updates, "Check for updates automatically")
+                    .on_hover_text(
+                        "Once a day, when Peek starts, it asks GitHub for the latest release. Nothing is downloaded until you choose to update.",
+                    )
+                    .changed();
+                self.update_panel(ui);
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button(format!("{}  About Peek", icons::INFO)).clicked() {
                         cmd = Some(Command::About);
@@ -1759,6 +2042,7 @@ impl PeekApp {
             ("Toggle connections sidebar".into(), Command::ToggleSidebar),
             ("Settings".into(), Command::Settings),
             ("About Peek".into(), Command::About),
+            ("Check for updates".into(), Command::CheckUpdates),
             ("Theme: dark".into(), Command::SetTheme(Theme::Dark)),
             ("Theme: light".into(), Command::SetTheme(Theme::Light)),
             ("Theme: follow system".into(), Command::SetTheme(Theme::System)),
@@ -1857,6 +2141,47 @@ impl PeekApp {
                 }
                 Some(false) => self.confirm_delete = None,
                 None => {}
+            }
+        }
+
+        if let Some(confirm) = self.update_confirm {
+            let version = self.updater.version().unwrap_or_default().to_string();
+            let (title, go, wait) = match confirm {
+                UpdateConfirm::Start => (format!("Update to Peek {version}?"), "Update and restart", "Not now"),
+                UpdateConfirm::Restart => (format!("Peek {version} is ready"), "Restart now", "Later"),
+            };
+            let closes = match self.restart_interrupts() {
+                Some(what) => format!("Peek restarts to finish the update. That {what}."),
+                None => "Peek restarts to finish the update.".to_string(),
+            };
+            let mut decided = None;
+            egui::Modal::new(egui::Id::unique("update-confirm")).show(ctx, |ui| {
+                ui.set_width(380.0);
+                ui.label(RichText::new(title).strong());
+                ui.label(closes);
+                if confirm == UpdateConfirm::Restart {
+                    ui.label(RichText::new("Later keeps Peek open; restart from About or Settings.").weak());
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(go).clicked() {
+                        decided = Some(true);
+                    }
+                    if ui.button(wait).clicked() {
+                        decided = Some(false);
+                    }
+                });
+            });
+            if let Some(go) = decided {
+                self.update_confirm = None;
+                match (go, confirm) {
+                    (true, UpdateConfirm::Start) => {
+                        self.restart_agreed = true;
+                        self.updater.install(Self::update_notify(ctx));
+                    }
+                    (true, UpdateConfirm::Restart) => self.restart_for_update(ctx),
+                    (false, _) => {}
+                }
             }
         }
 
@@ -2009,6 +2334,7 @@ impl eframe::App for PeekApp {
             }
         }
 
+        self.poll_updates(&ctx);
         self.shortcuts(&ctx);
 
         // Keyboard grab follows focus: only while Peek is in front and a
