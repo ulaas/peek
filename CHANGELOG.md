@@ -2,6 +2,14 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
+## 0.6.1
+
+A small release, and the first one Peek 0.6.0 can install by itself with **Update and restart**.
+
+### Fixed
+
+- Updating an MSI install: the downloaded installer is checked against its SHA-256 again at the moment it is run, and held so that nothing can change it while Windows Installer reads it. Before, it was checked once after the download and then waited in a folder any program of yours could write to
+
 ## 0.6.0
 
 Peek keeps itself up to date.
