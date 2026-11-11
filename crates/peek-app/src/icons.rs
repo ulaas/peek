@@ -17,7 +17,6 @@ pub const DOTS_THREE: &str = "\u{E1FE}";
 pub const FILM_STRIP: &str = "\u{E792}";
 pub const FOLDER_OPEN: &str = "\u{E256}";
 pub const GEAR: &str = "\u{E270}";
-pub const GIT_COMMIT: &str = "\u{E27A}";
 pub const HOUSE: &str = "\u{E2C2}";
 pub const INFO: &str = "\u{E2CE}";
 pub const KEYBOARD: &str = "\u{E2D8}";

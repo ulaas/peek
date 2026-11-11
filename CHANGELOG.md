@@ -2,6 +2,12 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
+## 0.6.2
+
+### Changed
+
+- About: the mark, name and version sit in a header above the build's facts (commit, build, platform, renderer, settings folder), the license and the update check. **Copy info** puts the facts on the clipboard for a bug report
+
 ## 0.6.1
 
 A small release, and the first one Peek 0.6.0 can install by itself with **Update and restart**.

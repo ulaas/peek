@@ -256,6 +256,32 @@ fn resolution_picker(ui: &mut egui::Ui, res: &mut Resolution, custom: &mut bool,
 }
 
 /// Hairline around the undecorated window so it stays distinct from what is behind it.
+/// What About says about this build, as `(name, value)`, the version first. `config` is the
+/// settings folder.
+fn about_facts(config: &std::path::Path) -> Vec<(&'static str, String)> {
+    vec![
+        ("Version", logo::VERSION.to_string()),
+        ("Commit", logo::COMMIT.to_string()),
+        ("Build", format!("{} · {}", logo::BUILD_DATE, logo::PROFILE)),
+        ("Platform", format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH)),
+        ("Renderer", "wgpu".to_string()),
+        ("Settings", config.display().to_string()),
+    ]
+}
+
+/// The text "Copy info" puts on the clipboard: `Peek` and a `Name: value` line for each fact.
+fn about_copy_text(facts: &[(&'static str, String)]) -> String {
+    let lines: Vec<String> = facts.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+    format!(
+        "Peek
+{}",
+        lines.join(
+            "
+"
+        )
+    )
+}
+
 fn window_border(ctx: &egui::Context) {
     if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
         return;
@@ -1106,63 +1132,59 @@ impl PeekApp {
         }
         let mut open = true;
         let mut copied = None;
+        let facts = about_facts(&self.store.paths.config);
         egui::Window::new("About Peek")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .fixed_size([360.0, 0.0])
+            .fixed_size([440.0, 0.0])
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.add_space(10.0);
-                ui.vertical_centered(|ui| {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
                     ui.add(egui::Image::new((self.logo.id(), Vec2::splat(72.0))));
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Peek").font(theme::semibold(24.0)).strong());
-                    ui.label(RichText::new("Fast, quiet remote desktop").weak());
-                    ui.add_space(12.0);
-                });
-                egui::Grid::new("about-grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
-                    ui.label(RichText::new("Version").weak());
-                    ui.label(logo::VERSION);
-                    ui.end_row();
-                    ui.label(RichText::new("Commit").weak());
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("{}  {}", icons::GIT_COMMIT, logo::short_commit())).monospace());
-                        if widgets::icon_button_sized(ui, icons::COPY, "Copy the full version line", 22.0, None).clicked() {
-                            ui.ctx().copy_text(logo::version_line());
-                            copied = Some(());
-                        }
+                    ui.vertical(|ui| {
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("Peek").font(theme::semibold(24.0)).strong());
+                        ui.label(RichText::new(format!("Version {}", logo::VERSION)).weak());
+                        ui.label(RichText::new("Fast, quiet remote desktop").small().weak());
                     });
-                    ui.end_row();
-                    if logo::COMMIT.ends_with("-dirty") {
-                        ui.label("");
-                        ui.label(RichText::new("built with uncommitted changes").small().color(theme::WARN));
+                });
+                ui.add_space(12.0);
+                egui::Grid::new("about-grid").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
+                    // The version is in the header.
+                    for (k, v) in facts.iter().skip(1) {
+                        ui.label(RichText::new(*k).weak());
+                        ui.add(egui::Label::new(v.as_str()).truncate());
                         ui.end_row();
                     }
-                    ui.label(RichText::new("Built").weak());
-                    ui.label(format!("{} · {}", logo::BUILD_DATE, logo::PROFILE));
-                    ui.end_row();
-                    ui.label(RichText::new("Settings").weak());
-                    ui.label(RichText::new(self.store.paths.config.display().to_string()).small());
-                    ui.end_row();
                 });
+                if logo::COMMIT.ends_with("-dirty") {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("Built with uncommitted changes.").small().color(theme::WARN));
+                }
                 ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(4.0);
-                self.update_panel(ui);
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(8.0);
+                ui.label(RichText::new("Free software under the MIT or Apache 2.0 license, at your choice.").small().weak());
                 ui.label(
                     RichText::new("RDP by IronRDP · UI by egui · icons by Phosphor (MIT). Peek's VNC client, recorder and widgets are its own.")
                         .small()
                         .weak(),
                 );
                 ui.add_space(10.0);
-                ui.vertical_centered(|ui| {
-                    if widgets::primary_button(ui, "Close", Vec2::new(110.0, 32.0)).clicked() {
+                self.update_panel(ui);
+                ui.add_space(12.0);
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    if widgets::primary_button(ui, "Close", Vec2::new(96.0, 30.0)).clicked() {
                         self.about_open = false;
+                    }
+                    if widgets::secondary_button(ui, "Copy info", Vec2::new(96.0, 30.0))
+                        .on_hover_text("These facts as text, for a bug report.")
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(about_copy_text(&facts));
+                        copied = Some(());
                     }
                 });
                 ui.add_space(4.0);
@@ -1171,7 +1193,7 @@ impl PeekApp {
             self.about_open = false;
         }
         if copied.is_some() {
-            self.toast("Version copied", ToastKind::Success);
+            self.toast("Info copied", ToastKind::Success);
         }
     }
 

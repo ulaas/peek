@@ -65,8 +65,8 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
             pkg-config cmake nasm libasound2-dev libxkbcommon-dev libwayland-dev libx11-dev
 
       - name: Install NASM
