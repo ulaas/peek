@@ -2321,7 +2321,11 @@ impl PeekApp {
 }
 
 impl eframe::App for PeekApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        #[cfg(windows)]
+        crate::util::window_background(frame, ui.ctx().global_style().visuals.panel_fill);
+        #[cfg(not(windows))]
+        let _ = frame;
         let ctx = ui.ctx().clone();
 
         // Backend events for every session, visible or not.

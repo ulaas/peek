@@ -186,3 +186,41 @@ pub fn read_clipboard() -> Option<LocalClip> {
 pub fn write_clipboard_files(paths: &[std::path::PathBuf]) -> bool {
     arboard::Clipboard::new().and_then(|mut cb| cb.set().file_list(paths)).is_ok()
 }
+
+/// What Windows paints where a resize uncovers the window, until the next frame is there: the
+/// window class comes without a background brush, and the unpainted part shows white. Cheap to
+/// call every frame (it does something only when the colour changes).
+#[cfg(windows)]
+pub fn window_background(window: &impl raw_window_handle::HasWindowHandle, color: egui::Color32) {
+    use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+
+    use raw_window_handle::RawWindowHandle;
+    use windows_sys::Win32::Graphics::Gdi::{CreateSolidBrush, DeleteObject};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GCLP_HBRBACKGROUND, SetClassLongPtrW};
+
+    /// The colour the class has now (`u32::MAX`: none set), and its brush.
+    static COLOR: AtomicU32 = AtomicU32::new(u32::MAX);
+    static BRUSH: AtomicIsize = AtomicIsize::new(0);
+
+    // COLORREF is 0x00BBGGRR.
+    let colorref = u32::from(color.r()) | u32::from(color.g()) << 8 | u32::from(color.b()) << 16;
+    if COLOR.load(Ordering::Relaxed) == colorref {
+        return;
+    }
+    let Ok(handle) = window.window_handle() else { return };
+    let RawWindowHandle::Win32(win) = handle.as_raw() else { return };
+    // SAFETY: a valid window of this process; the brush belongs to the class from here on, and
+    // the one it replaces is ours and no longer used.
+    unsafe {
+        let brush = CreateSolidBrush(colorref);
+        if brush.is_null() {
+            return;
+        }
+        SetClassLongPtrW(win.hwnd.get() as _, GCLP_HBRBACKGROUND, brush as isize);
+        let old = BRUSH.swap(brush as isize, Ordering::Relaxed);
+        if old != 0 {
+            DeleteObject(old as _);
+        }
+    }
+    COLOR.store(colorref, Ordering::Relaxed);
+}

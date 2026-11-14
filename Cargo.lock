@@ -3931,6 +3931,7 @@ dependencies = [
  "peek-record",
  "peek-store",
  "peek-vnc",
+ "raw-window-handle",
  "rfd",
  "rustls",
  "serde",
