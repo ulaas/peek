@@ -475,6 +475,7 @@ impl SessionView {
     }
 
     fn sync_modifiers(&mut self, m: egui::Modifiers) {
+        let m = self.remote_modifiers(m);
         let pairs = [
             (self.sent_mods.shift, m.shift, KeyCode::ShiftLeft),
             (self.sent_mods.ctrl, m.ctrl, KeyCode::ControlLeft),
@@ -487,6 +488,18 @@ impl SessionView {
             }
         }
         self.sent_mods = m;
+    }
+
+    /// The modifiers as the remote computer should see them. On a Mac, Command does what Ctrl
+    /// does on Windows (copy, paste, select all, undo, save), so over RDP it is sent as Ctrl:
+    /// Cmd+C copies on the remote instead of pressing Windows+C. VNC servers are often Macs
+    /// themselves and get Command as Meta, as before.
+    fn remote_modifiers(&self, mut m: egui::Modifiers) -> egui::Modifiers {
+        if cfg!(target_os = "macos") && self.endpoint.protocol == Protocol::Rdp && m.mac_cmd {
+            m.ctrl = true;
+            m.mac_cmd = false;
+        }
+        m
     }
 
     fn tap(&self, code: KeyCode) {
@@ -601,7 +614,7 @@ impl SessionView {
                 // the key. Shift+Delete / Shift+Insert are the Windows alternates for cut / paste.
                 Event::Copy if keyboard_via_egui => self.tap(KeyCode::KeyC),
                 Event::Cut if keyboard_via_egui => {
-                    let m = ui.input(|i| i.modifiers);
+                    let m = self.remote_modifiers(ui.input(|i| i.modifiers));
                     self.tap(if m.shift && !m.ctrl { KeyCode::Delete } else { KeyCode::KeyX });
                 }
                 paste @ (Event::Paste(_) | Event::PasteImage(_)) if keyboard_via_egui => {
@@ -611,7 +624,7 @@ impl SessionView {
                         self.last_clipboard = Some(LocalClip::Text(text.clone()));
                         self.send(SessionCommand::ClipboardText(text));
                     }
-                    let m = ui.input(|i| i.modifiers);
+                    let m = self.remote_modifiers(ui.input(|i| i.modifiers));
                     self.tap(if m.shift && !m.ctrl { KeyCode::Insert } else { KeyCode::KeyV });
                 }
                 _ => {}
