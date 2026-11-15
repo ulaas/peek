@@ -10,8 +10,9 @@
 #   linux    <name>.tar.gz  peek, launcher entry, icon, install.sh
 #            <name>.deb     package for Debian and Ubuntu (dpkg-deb)
 #            <name>.rpm     package for Fedora and openSUSE (rpmbuild)
-#   macos    <name>.zip     Peek.app (ad-hoc signed)
+#   macos    <name>.zip     Peek.app (ad-hoc signed, or MACOS_SIGN_IDENTITY)
 #            <name>.dmg     disk image with Peek.app and an Applications link
+#                           (scripts/package-macos.sh builds and packages in one go)
 set -euo pipefail
 
 target=$1
@@ -71,10 +72,25 @@ case "$target" in
     cp "$rpmtop"/RPMS/*/peek-*.rpm "$dist/$name.rpm"
     ;;
   *apple*)
+    # Apple silicon only. Signing: ad-hoc unless MACOS_SIGN_IDENTITY names a Developer ID
+    # Application certificate in the keychain; with that, MACOS_NOTARY_PROFILE (a profile saved
+    # with `xcrun notarytool store-credentials`) also notarizes and staples the disk image.
+    [ "$(lipo -archs "$bin")" = arm64 ] || { echo "$bin is not arm64-only: $(lipo -archs "$bin")" >&2; exit 1; }
+    # Everything but the system's own libraries is linked in statically (Opus included).
+    if otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -Ev '^(/usr/lib/|/System/Library/)'; then
+      echo "$bin links libraries that are not part of macOS (above)" >&2
+      exit 1
+    fi
+    identity=${MACOS_SIGN_IDENTITY:--}
+    sign=(codesign --force --options runtime --sign "$identity")
+    if [ "$identity" = - ]; then sign+=(--timestamp=none); else sign+=(--timestamp); fi
+
     app="$stage/Peek.app"
     mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
     cp "$bin" "$app/Contents/MacOS/peek"
     sed "s/@VERSION@/$version/g" "$root/packaging/macos/Info.plist" > "$app/Contents/Info.plist"
+    plutil -lint "$app/Contents/Info.plist"
+    printf 'APPL????' > "$app/Contents/PkgInfo"
     iconset="$work/peek.iconset"
     mkdir -p "$iconset"
     src="$root/packaging/macos/icon-1024.png"
@@ -83,14 +99,39 @@ case "$target" in
       sips -z $((s * 2)) $((s * 2)) "$src" --out "$iconset/icon_${s}x${s}@2x.png" >/dev/null
     done
     iconutil -c icns "$iconset" -o "$app/Contents/Resources/peek.icns"
-    # Not notarized: an ad-hoc signature keeps the bundle intact on Apple silicon.
-    codesign --force --deep --sign - "$app"
+    # The executable first, then the bundle around it (there is no nested code to sign).
+    "${sign[@]}" "$app/Contents/MacOS/peek"
+    "${sign[@]}" "$app"
+    codesign --verify --deep --strict --verbose=2 "$app"
 
     dmg="$work/dmg"
     mkdir -p "$dmg"
-    cp -R "$app" "$dmg/"
+    ditto "$app" "$dmg/Peek.app"
     ln -s /Applications "$dmg/Applications"
-    hdiutil create -volname Peek -srcfolder "$dmg" -fs HFS+ -format UDZO -ov "$dist/$name.dmg"
+    cp "$app/Contents/Resources/peek.icns" "$dmg/.VolumeIcon.icns"
+    rm -f "$dist/$name.dmg"
+    hdiutil create -volname Peek -srcfolder "$dmg" -fs HFS+ -format UDZO -imagekey zlib-level=9 \
+      -ov "$dist/$name.dmg"
+    # The volume shows the Peek icon in Finder (needs SetFile from the Xcode command line tools).
+    if xcrun --find SetFile >/dev/null 2>&1; then
+      rw="$work/rw.dmg"
+      hdiutil convert "$dist/$name.dmg" -format UDRW -o "$rw" >/dev/null
+      mnt=$(mktemp -d)
+      hdiutil attach "$rw" -nobrowse -noverify -noautoopen -mountpoint "$mnt" >/dev/null
+      xcrun SetFile -a C "$mnt"
+      hdiutil detach "$mnt" >/dev/null
+      rmdir "$mnt" 2>/dev/null || true
+      rm -f "$dist/$name.dmg"
+      hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$dist/$name.dmg" >/dev/null
+    fi
+    if [ "$identity" != - ]; then
+      codesign --force --sign "$identity" --timestamp "$dist/$name.dmg"
+      if [ -n "${MACOS_NOTARY_PROFILE:-}" ]; then
+        xcrun notarytool submit "$dist/$name.dmg" --keychain-profile "$MACOS_NOTARY_PROFILE" --wait
+        xcrun stapler staple "$dist/$name.dmg"
+      fi
+    fi
+    hdiutil verify "$dist/$name.dmg"
 
     cp "${docs[@]}" "$stage/"
     (cd "$dist" && rm -f "$name.zip" && ditto -c -k --keepParent "$name" "$name.zip")

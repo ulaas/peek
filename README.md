@@ -70,6 +70,8 @@ peek --version                # version and the commit it was built from
 
 Shortcuts other than Ctrl+Alt+Enter go to the remote computer while a session has focus. Click outside the session to use them locally.
 
+On a Mac the shortcuts use Cmd instead of Ctrl (Cmd+K, Cmd+L, …), except next tab (Control+Tab) and full screen (Control+Option+Enter). In an RDP session Cmd is sent as Ctrl, so Cmd+C, Cmd+V, Cmd+A and Cmd+Z do on Windows what they do on the Mac; Cmd+Q and Cmd+Tab stay with macOS. In a VNC session Cmd is sent as the Command/Meta key. `.peekrec` and `.rdp` files open from Finder (`.rdp` under *Open With*). The log is in `~/Library/Logs/Peek`, settings and the library in `~/Library/Application Support/dev.Peek.Peek`.
+
 ## Build
 
 ```
@@ -80,6 +82,14 @@ cargo run -p peek-record --features mp4 --example export -- in.peekrec out.mp4 [
 ```
 
 Building needs Rust 1.90+ and CMake (for the bundled Opus); on Linux also `libasound2-dev` and `pkg-config`.
+
+macOS app and disk image (Apple silicon), on a Mac with the Xcode command line tools and `brew install cmake`:
+
+```
+scripts/package-macos.sh     # dist/peek-macos-arm64.dmg and .zip (Peek.app, ad-hoc signed)
+```
+
+Set `MACOS_SIGN_IDENTITY` to a Developer ID Application identity to sign with it, and `MACOS_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize and staple the disk image as well. The release workflow packages every system with `scripts/package.sh`.
 
 Releases: bump `version` in `Cargo.toml`, add a `## <version>` section to `CHANGELOG.md`, commit, then push a tag `v<version>`. `.github/workflows/release.yml` waits for CI (`.github/workflows/ci.yml`: fmt, clippy, tests on all three systems) to pass on that commit, then builds and publishes the release with that section as its notes. Running the workflow by hand from the Actions tab is a dry run that only uploads the packages as artifacts.
 
