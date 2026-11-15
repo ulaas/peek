@@ -387,7 +387,7 @@ pub fn install(app: &Path, dmg: &Path, version: &str, work: &Path) -> Result<(),
 pub fn relaunch_after_exit(app: &Path, note: &str) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     // `open --env` is newer than some systems Peek runs on; without it, Peek starts without the note.
-    const SCRIPT: &str = r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+    const SCRIPT: &str = r#"n=0; while kill -0 "$1" 2>/dev/null; do [ $n -ge 3000 ] && exit 0; n=$((n+1)); /bin/sleep 0.2; done
 /usr/bin/open -n --env "$2" "$3" 2>/dev/null || /usr/bin/open -n "$3""#;
     let mut cmd = std::process::Command::new("/bin/sh");
     cmd.arg("-c")
