@@ -2,6 +2,12 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
+## 0.6.3
+
+### Fixed
+
+- Windows: the part of the window that a resize uncovers shows Peek's background instead of flashing white until the next frame
+
 ## 0.6.2
 
 ### Changed
