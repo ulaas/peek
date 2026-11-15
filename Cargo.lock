@@ -3915,7 +3915,7 @@ dependencies = [
 
 [[package]]
 name = "peek"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3951,7 +3951,7 @@ dependencies = [
 
 [[package]]
 name = "peek-audio"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "anyhow",
  "cpal",
@@ -3961,7 +3961,7 @@ dependencies = [
 
 [[package]]
 name = "peek-core"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "bytemuck",
  "parking_lot",
@@ -3972,7 +3972,7 @@ dependencies = [
 
 [[package]]
 name = "peek-rdp"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "anyhow",
  "ironrdp",
@@ -3990,7 +3990,7 @@ dependencies = [
 
 [[package]]
 name = "peek-record"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4005,7 +4005,7 @@ dependencies = [
 
 [[package]]
 name = "peek-store"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "anyhow",
  "directories",
@@ -4019,7 +4019,7 @@ dependencies = [
 
 [[package]]
 name = "peek-vnc"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "anyhow",
  "des",

@@ -2,7 +2,9 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
-## Unreleased
+## 0.6.5
+
+On a Mac, Peek now updates itself.
 
 ### Changed
 
