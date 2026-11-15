@@ -351,8 +351,14 @@ impl PeekApp {
         };
         app.updater.clean_up();
         match Updater::restart_note() {
-            Some(Ok(text)) => app.toast_for(text, ToastKind::Success, 8),
-            Some(Err(text)) => app.toast_for(text, ToastKind::Warning, 12),
+            Some(Ok(text)) => {
+                tracing::info!("update: {text}");
+                app.toast_for(text, ToastKind::Success, 8)
+            }
+            Some(Err(text)) => {
+                tracing::warn!("update: {text}");
+                app.toast_for(text, ToastKind::Warning, 12)
+            }
             None => {}
         }
         if app.updater.version().is_none() {
@@ -362,6 +368,10 @@ impl PeekApp {
         let s = &app.store.settings;
         if !cfg!(debug_assertions) && update::check_due(s.check_updates, s.last_update_check, peek_store::now_unix()) {
             app.updater.check(false, Self::update_notify(&cc.egui_ctx));
+        }
+        #[cfg(feature = "update-test-feed")]
+        if std::env::var_os("PEEK_UPDATE_TEST_AUTO").is_some() {
+            app.updater.check(true, Self::update_notify(&cc.egui_ctx));
         }
         // Started with a file or address: that tab gets the keyboard, not quick connect.
         app.focus_quick = arg.is_none();
@@ -733,8 +743,8 @@ impl PeekApp {
         if kind.action().is_none() {
             return;
         }
-        // The disk image on macOS is only opened: nothing restarts.
-        if self.restart_interrupts().is_some() && kind != update::InstallKind::MacApp {
+        // A disk image that is only opened restarts nothing.
+        if self.restart_interrupts().is_some() && kind.restarts() {
             self.update_confirm = Some(UpdateConfirm::Start);
         } else {
             self.restart_agreed = false;
@@ -760,6 +770,10 @@ impl PeekApp {
                     self.store.settings.last_update_check = Some(peek_store::now_unix());
                     self.store.settings.update_seen = found.clone();
                     self.save_settings();
+                    #[cfg(feature = "update-test-feed")]
+                    if found.is_some() && std::env::var_os("PEEK_UPDATE_TEST_AUTO").is_some() {
+                        self.begin_update(ctx);
+                    }
                     match found {
                         Some(v) => {
                             self.toast_for(format!("Peek {v} is available. Open About to update."), ToastKind::Info, 8)

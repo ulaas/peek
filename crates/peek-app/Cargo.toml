@@ -9,6 +9,11 @@ license.workspace = true
 name = "peek"
 path = "src/main.rs"
 
+[features]
+# Test builds only, never a release: PEEK_UPDATE_FEED points the updater at a local server
+# (see update::Source::test_feed), and PEEK_UPDATE_TEST_AUTO=1 starts the update it finds.
+update-test-feed = []
+
 [dependencies]
 peek-core.workspace = true
 peek-vnc.workspace = true
@@ -42,6 +47,8 @@ flate2.workspace = true
 winit = { version = "0.30", default-features = false }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
+# Updates swap Peek.app in one rename (renamex_np) and wait for Peek to exit in a detached helper (setsid).
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"

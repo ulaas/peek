@@ -9,7 +9,9 @@
 //!
 //! How the update is put in place depends on how Peek was installed (see
 //! [`InstallKind`]). Copies that belong to a package manager are never
-//! touched: they only say how to update.
+//! touched: they only say how to update. On macOS a Peek.app signed with a
+//! Developer ID replaces itself after further checks of the new app's
+//! signature (see the `mac` module).
 
 use crate::{logo, util};
 use serde::Deserialize;
@@ -21,6 +23,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+
+mod mac;
 
 /// Where the latest release is shown, and the fallback for every link.
 pub const RELEASES_URL: &str = "https://github.com/ulaas/peek/releases/latest";
@@ -97,6 +101,27 @@ impl Source {
             pages: "https://github.com/ulaas/peek/".into(),
             https_only: true,
         }
+    }
+
+    /// A local stand-in for GitHub, for driving the update of a packaged Peek
+    /// end to end. Only in builds with the `update-test-feed` feature, which no
+    /// release is built with: `PEEK_UPDATE_FEED=http://127.0.0.1:<port>/`
+    /// serves `repos/ulaas/peek/releases/latest` and the files under `ulaas/peek/`.
+    #[cfg(feature = "update-test-feed")]
+    pub fn test_feed() -> Option<Self> {
+        let base = std::env::var("PEEK_UPDATE_FEED").ok()?;
+        let base = format!("{}/", base.trim_end_matches('/'));
+        if !base.starts_with("http://127.0.0.1:") {
+            tracing::warn!("update: PEEK_UPDATE_FEED must be http://127.0.0.1:<port>/; ignored");
+            return None;
+        }
+        tracing::warn!("update: using the test feed at {base}");
+        Some(Self {
+            api: format!("{base}repos/ulaas/peek/releases/latest"),
+            downloads: format!("{base}ulaas/peek/releases/download/"),
+            pages: format!("{base}ulaas/peek/"),
+            https_only: false,
+        })
     }
 }
 
@@ -493,10 +518,26 @@ pub enum InstallKind {
     WindowsMsi,
     /// ~/.local/bin/peek or an unpacked tarball in a writable folder: replaced in place.
     LinuxBinary,
-    /// Peek.app: the new disk image is downloaded, checked and opened.
+    /// Peek.app signed with a Developer ID, in a folder the user can write to:
+    /// the app in the new disk image is checked and swapped in, and Peek restarts.
     MacApp,
+    /// Any other Peek.app: the new disk image is downloaded, checked and opened.
+    MacDiskImage(MacManual),
     /// Updated by something else; Peek only says how.
     Managed(Managed),
+}
+
+/// Why a Peek.app does not replace itself, and opens the new disk image instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MacManual {
+    /// Run where it was downloaded: macOS runs it from a temporary copy (App Translocation).
+    Translocated,
+    /// On a read-only volume, such as the disk image itself.
+    ReadOnlyVolume,
+    /// In a folder the user cannot write to; Peek does not ask for an administrator.
+    FolderNotWritable,
+    /// Ad-hoc signed or unsigned, so there is no team the new app must match.
+    NotDeveloperId,
 }
 
 /// What classification looks at, gathered once from the running process.
@@ -504,7 +545,7 @@ pub enum InstallKind {
 pub struct Facts {
     pub os: Os,
     pub exe: PathBuf,
-    /// Peek can create files next to its executable.
+    /// Peek can create files next to its executable, or on macOS next to Peek.app.
     pub dir_writable: bool,
     /// The MSI's registry key (HKLM\Software\Peek) exists.
     pub msi_marker: bool,
@@ -515,6 +556,13 @@ pub struct Facts {
     pub release_build: bool,
     /// Releases carry a build for this processor.
     pub arch_ok: bool,
+    /// The executable with every symbolic link resolved.
+    pub real_exe: PathBuf,
+    /// macOS: Peek.app is on a volume mounted read-only.
+    pub read_only_volume: bool,
+    /// macOS: the team whose Developer ID signed the running Peek.app; `None`
+    /// if it is ad-hoc signed or unsigned.
+    pub team_id: Option<String>,
 }
 
 #[cfg(windows)]
@@ -561,10 +609,20 @@ impl Facts {
             Os::Windows | Os::Linux => cfg!(target_arch = "x86_64"),
             Os::Mac => cfg!(target_arch = "aarch64"),
         };
+        // On macOS the folder that counts is the one Peek.app is in.
+        let bundle = if os == Os::Mac { mac::bundle_of(exe) } else { None };
+        let folder = bundle.as_deref().unwrap_or(exe).parent();
+        #[cfg(target_os = "macos")]
+        let (read_only_volume, team_id) = match &bundle {
+            Some(app) => (mac::read_only_volume(app), mac::signing_team(app)),
+            None => (false, None),
+        };
+        #[cfg(not(target_os = "macos"))]
+        let (read_only_volume, team_id) = (false, None);
         Self {
             os,
             exe: exe.to_path_buf(),
-            dir_writable: exe.parent().is_some_and(dir_writable),
+            dir_writable: folder.is_some_and(dir_writable),
             msi_marker: msi_marker(),
             program_files: ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
                 .iter()
@@ -575,6 +633,9 @@ impl Facts {
                 .any(|p| Path::new(p).exists()),
             release_build: !cfg!(debug_assertions),
             arch_ok,
+            real_exe: std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf()),
+            read_only_volume,
+            team_id,
         }
     }
 }
@@ -624,12 +685,24 @@ pub fn classify(f: &Facts) -> InstallKind {
         Os::Mac => {
             let bundle = matches!(seg.as_slice(), [.., app, contents, macos, _]
                 if app.ends_with(".app") && contents == "contents" && macos == "macos");
-            if has("caskroom") || has("cellar") || (bundle && f.brew_cask) {
+            // A Peek.app that is a link into Homebrew's folders is Homebrew's too.
+            let real = segments(&f.real_exe, f.os);
+            let brew = |s: &String| s == "caskroom" || s == "cellar";
+            let manual = InstallKind::MacDiskImage;
+            if seg.iter().chain(&real).any(brew) || (bundle && f.brew_cask) {
                 M(Managed::Homebrew)
-            } else if bundle {
-                InstallKind::MacApp
-            } else {
+            } else if !bundle {
                 M(Managed::Unsupported)
+            } else if has("apptranslocation") {
+                manual(MacManual::Translocated)
+            } else if f.read_only_volume {
+                manual(MacManual::ReadOnlyVolume)
+            } else if !f.dir_writable {
+                manual(MacManual::FolderNotWritable)
+            } else if f.team_id.is_none() {
+                manual(MacManual::NotDeveloperId)
+            } else {
+                InstallKind::MacApp
             }
         }
     }
@@ -642,18 +715,23 @@ impl InstallKind {
             InstallKind::WindowsPortable => Some("peek-windows-x64.zip"),
             InstallKind::WindowsMsi => Some("peek-windows-x64.msi"),
             InstallKind::LinuxBinary => Some("peek-linux-x64.tar.gz"),
-            InstallKind::MacApp => Some("peek-macos-arm64.dmg"),
+            InstallKind::MacApp | InstallKind::MacDiskImage(_) => Some("peek-macos-arm64.dmg"),
             InstallKind::Managed(_) => None,
         }
+    }
+
+    /// Whether the update ends with Peek restarting, which closes open sessions.
+    pub fn restarts(self) -> bool {
+        self.action() == Some("Update and restart")
     }
 
     /// Label of the one-click action, where there is one.
     pub fn action(self) -> Option<&'static str> {
         match self {
-            InstallKind::WindowsPortable | InstallKind::WindowsMsi | InstallKind::LinuxBinary => {
+            InstallKind::WindowsPortable | InstallKind::WindowsMsi | InstallKind::LinuxBinary | InstallKind::MacApp => {
                 Some("Update and restart")
             }
-            InstallKind::MacApp => Some("Download update"),
+            InstallKind::MacDiskImage(_) => Some("Download update"),
             InstallKind::Managed(_) => None,
         }
     }
@@ -662,15 +740,29 @@ impl InstallKind {
     /// the second part is a command to run, if there is one.
     pub fn advice(self) -> (&'static str, Option<&'static str>) {
         match self {
-            InstallKind::WindowsPortable | InstallKind::LinuxBinary => {
+            InstallKind::WindowsPortable | InstallKind::LinuxBinary | InstallKind::MacApp => {
                 ("Downloads the new version, checks it and restarts Peek.", None)
             }
             InstallKind::WindowsMsi => {
                 ("Downloads the new installer, checks it and runs it. Windows asks for permission.", None)
             }
-            InstallKind::MacApp => {
-                ("Downloads the new disk image, checks it and opens it; then drag Peek to Applications.", None)
-            }
+            InstallKind::MacDiskImage(why) => (
+                match why {
+                    MacManual::Translocated => {
+                        "Peek is running where it was downloaded, so it cannot replace itself. Move Peek to Applications and open it from there. Or download the new disk image, which is checked and opened; then drag Peek to Applications."
+                    }
+                    MacManual::ReadOnlyVolume => {
+                        "Peek is running from its disk image or another read-only disk, so it cannot replace itself. Downloads the new disk image, checks it and opens it; then drag Peek to Applications."
+                    }
+                    MacManual::FolderNotWritable => {
+                        "Peek cannot write to the folder it is in and does not ask for an administrator's password. Downloads the new disk image, checks it and opens it; then drag Peek to Applications."
+                    }
+                    MacManual::NotDeveloperId => {
+                        "This Peek is not signed with a Developer ID, so it does not replace itself. Downloads the new disk image, checks it and opens it; then drag Peek to Applications."
+                    }
+                },
+                None,
+            ),
             InstallKind::Managed(Managed::Scoop) => {
                 ("Peek was installed with Scoop. Update it with:", Some("scoop update peek"))
             }
@@ -847,6 +939,9 @@ pub enum Staged {
     Installer(PathBuf, String),
     /// A verified disk image for the user to open.
     DiskImage(PathBuf),
+    /// macOS: the new Peek.app is in place; opening it once Peek has closed finishes the update.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Bundle(PathBuf),
 }
 
 /// Download, verify and stage the update for `plan`. `known` is the release a
@@ -914,7 +1009,12 @@ fn stage(plan: &Plan, file: &Path, bytes: Vec<u8>, version: &str, progress: &Pro
         InstallKind::WindowsPortable => true,
         InstallKind::LinuxBinary => false,
         InstallKind::WindowsMsi => return Ok(Staged::Installer(file.to_path_buf(), hex(&Sha256::digest(&bytes)))),
-        InstallKind::MacApp => return Ok(Staged::DiskImage(file.to_path_buf())),
+        InstallKind::MacDiskImage(_) => return Ok(Staged::DiskImage(file.to_path_buf())),
+        InstallKind::MacApp => {
+            drop(bytes);
+            progress.check_cancel()?;
+            return stage_bundle(plan, file, version);
+        }
         InstallKind::Managed(_) => return Err(plan.kind.advice().0.into()),
     };
     // Both archives hold one folder named like the archive, with the executable in it.
@@ -932,6 +1032,19 @@ fn stage(plan: &Plan, file: &Path, bytes: Vec<u8>, version: &str, progress: &Pro
         return Err(e);
     }
     swap_in(&plan.exe, &new, windows).map(Staged::Swapped)
+}
+
+/// Check the app in the verified disk image `file` and swap it in for the running Peek.app.
+#[cfg(target_os = "macos")]
+fn stage_bundle(plan: &Plan, file: &Path, version: &str) -> Result<Staged, String> {
+    let app = mac::bundle_of(&plan.exe).ok_or("Peek is not running from an app")?;
+    mac::install(&app, file, version, &plan.work)?;
+    Ok(Staged::Bundle(app))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn stage_bundle(_: &Plan, _: &Path, _: &str) -> Result<Staged, String> {
+    Err("a Mac app is only updated on a Mac".into())
 }
 
 /// Start the new executable; if it does not start, put the previous one back.
@@ -1053,6 +1166,15 @@ fn clean_up(exe: Option<PathBuf>, work: Option<PathBuf>) {
         let _ = std::fs::remove_dir_all(dir);
     }
     let Some(exe) = exe else { return };
+    // macOS: staging copies and set-aside apps of updates that did not finish.
+    #[cfg(target_os = "macos")]
+    if let Some(app) = mac::bundle_of(&exe) {
+        for (path, pid) in mac::leftovers(&app) {
+            if !mac::alive(pid) {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+    }
     let _ = std::fs::remove_file(new_path(&exe));
     let old = old_path(&exe);
     for _ in 0..20 {
@@ -1138,8 +1260,12 @@ impl Updater {
     /// on a day without a check.
     pub fn new(seen: Option<&str>) -> Self {
         let found = seen.filter(|v| is_newer(v, logo::VERSION)).map(|v| (v.to_string(), None));
+        #[cfg(feature = "update-test-feed")]
+        let source = Source::test_feed().unwrap_or_else(Source::github);
+        #[cfg(not(feature = "update-test-feed"))]
+        let source = Source::github();
         Self {
-            source: Source::github(),
+            source,
             exe: std::env::current_exe().ok(),
             work: util::update_dir(),
             kind: None,
@@ -1225,6 +1351,7 @@ impl Updater {
             return;
         };
         self.jobs += 1;
+        tracing::info!("update: starting, install kind {kind:?}");
         let plan = Plan {
             kind,
             exe,
@@ -1288,6 +1415,7 @@ impl Updater {
             match result {
                 Ok((release, staged)) => {
                     self.found = Some((release.version.clone(), Some(release)));
+                    tracing::info!("update: {} staged as {staged:?}", self.found.as_ref().map_or("", |f| f.0.as_str()));
                     match staged {
                         Staged::DiskImage(path) => {
                             self.phase = Phase::Opened;
@@ -1317,6 +1445,12 @@ impl Updater {
         let result = match (&self.staged, &self.exe) {
             (Some(Staged::Swapped(swap)), _) => start_new(swap),
             (Some(Staged::Installer(msi, sha256)), Some(exe)) => start_installer(msi, sha256, exe),
+            #[cfg(target_os = "macos")]
+            (Some(Staged::Bundle(app)), _) => {
+                mac::relaunch_after_exit(app, &format!("{RESULT_ENV}=ok:{}", logo::VERSION)).map_err(|e| {
+                    format!("The new version is installed but could not be started ({e}). Quit Peek and open it again.")
+                })
+            }
             _ => Err("There is no update to restart into.".into()),
         };
         if let Err(e) = &result {
@@ -1520,6 +1654,9 @@ mod tests {
             brew_cask: false,
             release_build: true,
             arch_ok: true,
+            real_exe: PathBuf::from(exe),
+            read_only_volume: false,
+            team_id: Some("N6FA79GV97".into()),
         }
     }
 
@@ -1656,19 +1793,37 @@ mod tests {
             Managed(super::Managed::Homebrew)
         );
 
-        // macOS
+        // macOS: a Developer ID app in a folder the user can write to replaces itself.
+        use super::MacManual as Mac;
         let app = "/Applications/Peek.app/Contents/MacOS/peek";
         assert_eq!(kind(Os::Mac, app, &same), MacApp);
-        assert_eq!(kind(Os::Mac, app, &read_only), MacApp, "the disk image is only opened, nothing is written");
+        assert_eq!(kind(Os::Mac, "/Users/ada/Applications/Tools/Peek.app/Contents/MacOS/peek", &same), MacApp);
+        assert_eq!(kind(Os::Mac, app, &read_only), MacDiskImage(Mac::FolderNotWritable));
+        assert_eq!(kind(Os::Mac, app, &|f| f.team_id = None), MacDiskImage(Mac::NotDeveloperId));
+        assert_eq!(kind(Os::Mac, app, &|f| f.read_only_volume = true), MacDiskImage(Mac::ReadOnlyVolume));
+        assert_eq!(
+            kind(Os::Mac, "/Volumes/Peek/Peek.app/Contents/MacOS/peek", &|f| (f.read_only_volume, f.dir_writable) =
+                (true, false)),
+            MacDiskImage(Mac::ReadOnlyVolume)
+        );
+        let translocated = "/private/var/folders/xy/abc/T/AppTranslocation/0A1B-2C3D/d/Peek.app/Contents/MacOS/peek";
+        assert_eq!(kind(Os::Mac, translocated, &read_only), MacDiskImage(Mac::Translocated));
+        // Homebrew's, however it is reached; it wins over every other reason.
         assert_eq!(kind(Os::Mac, app, &|f| f.brew_cask = true), Managed(super::Managed::Homebrew));
         assert_eq!(
             kind(Os::Mac, "/opt/homebrew/Caskroom/peek/0.5.0/Peek.app/Contents/MacOS/peek", &same),
             Managed(super::Managed::Homebrew)
         );
-        assert_eq!(
-            kind(Os::Mac, "/Users/ada/src/peek/target/release/peek", &same),
-            Managed(super::Managed::Unsupported)
-        );
+        let linked = |f: &mut Facts| {
+            f.real_exe = PathBuf::from("/opt/homebrew/Caskroom/peek/0.5.0/Peek.app/Contents/MacOS/peek");
+            f.team_id = None;
+        };
+        assert_eq!(kind(Os::Mac, app, &linked), Managed(super::Managed::Homebrew));
+        for not_an_app in ["/Users/ada/src/peek/target/release/peek", "/usr/local/bin/peek", "/Applications/Peek.app"] {
+            assert_eq!(kind(Os::Mac, not_an_app, &same), Managed(super::Managed::Unsupported), "{not_an_app}");
+        }
+        assert_eq!(kind(Os::Mac, app, &|f| f.arch_ok = false), Managed(super::Managed::Unsupported));
+        assert_eq!(kind(Os::Mac, app, &|f| f.release_build = false), Managed(super::Managed::DevBuild));
 
         // Everywhere
         for (os, exe) in [(Os::Windows, r"D:\src\peek\target\debug\peek.exe"), (Os::Linux, "/home/ada/.local/bin/peek")]
@@ -1685,10 +1840,20 @@ mod tests {
         assert_eq!(WindowsMsi.asset(), Some("peek-windows-x64.msi"));
         assert_eq!(LinuxBinary.asset(), Some("peek-linux-x64.tar.gz"));
         assert_eq!(MacApp.asset(), Some("peek-macos-arm64.dmg"));
-        for kind in [WindowsPortable, WindowsMsi, LinuxBinary] {
+        for kind in [WindowsPortable, WindowsMsi, LinuxBinary, MacApp] {
             assert_eq!(kind.action(), Some("Update and restart"));
+            assert!(kind.restarts(), "{kind:?} asks before closing sessions");
         }
-        assert_eq!(MacApp.action(), Some("Download update"));
+        use super::MacManual as Mac;
+        for why in [Mac::Translocated, Mac::ReadOnlyVolume, Mac::FolderNotWritable, Mac::NotDeveloperId] {
+            let kind = MacDiskImage(why);
+            assert_eq!((kind.asset(), kind.action()), (Some("peek-macos-arm64.dmg"), Some("Download update")));
+            assert!(!kind.restarts(), "{why:?}: only opens the disk image");
+            assert!(kind.advice().0.contains("disk image"), "{why:?}");
+        }
+        assert!(MacDiskImage(Mac::Translocated).advice().0.contains("Move Peek to Applications"));
+        assert!(MacDiskImage(Mac::FolderNotWritable).advice().0.contains("administrator"));
+        assert!(MacDiskImage(Mac::NotDeveloperId).advice().0.contains("Developer ID"));
         use super::Managed as M;
         for m in [M::Scoop, M::Homebrew, M::SystemPackage, M::ReadOnly, M::DevBuild, M::Unsupported] {
             assert_eq!((Managed(m).asset(), Managed(m).action()), (None, None), "{m:?}");
@@ -1883,9 +2048,8 @@ mod tests {
 
     #[test]
     fn installer_and_disk_image_are_verified_and_kept() {
-        for (kind, name) in
-            [(InstallKind::WindowsMsi, "peek-windows-x64.msi"), (InstallKind::MacApp, "peek-macos-arm64.dmg")]
-        {
+        let mac = InstallKind::MacDiskImage(MacManual::NotDeveloperId);
+        for (kind, name) in [(InstallKind::WindowsMsi, "peek-windows-x64.msi"), (mac, "peek-macos-arm64.dmg")] {
             let mock = Mock::start();
             mock.publish(name, b"installer bytes", Some(&sha(b"installer bytes")), Some(sha(b"installer bytes")));
             let dir = temp(name);
@@ -2031,6 +2195,148 @@ mod tests {
             assert!(!plan.work.exists());
         }
         assert_eq!(mock.hits("GET "), 0, "a copy something else updates asks for nothing");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn mac_signature_checks() {
+        // The team comes from the running app's own signature.
+        let signed = "Executable=/Applications/Peek.app/Contents/MacOS/peek\nIdentifier=io.github.ulaas.peek\n\
+                      Authority=Developer ID Application: Aydemir Sahin (N6FA79GV97)\nTeamIdentifier=N6FA79GV97\n";
+        assert_eq!(mac::team_id(signed), Some("N6FA79GV97".into()));
+        let ad_hoc = "Identifier=peek\nSignature=adhoc\nTeamIdentifier=not set\n";
+        assert_eq!(mac::team_id(ad_hoc), None);
+        assert_eq!(mac::team_id("code object is not signed at all"), None);
+        for odd in ["TeamIdentifier=", "TeamIdentifier=n6fa79gv97", "TeamIdentifier=N6FA79GV9\"", "TeamIdentifier=ABC"]
+        {
+            assert_eq!(mac::team_id(odd), None, "{odd}");
+        }
+        assert_eq!(
+            mac::requirement("N6FA79GV97"),
+            "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate \
+             leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"N6FA79GV97\""
+        );
+
+        // The new app has to be this Peek, at the release's version.
+        let id = "io.github.ulaas.peek";
+        assert_eq!(mac::check_identity(id, "0.9.0", id, "0.9.0"), Ok(()));
+        assert!(mac::check_identity("com.example.peek", "0.9.0", id, "0.9.0").unwrap_err().contains("not"));
+        assert!(mac::check_identity(id, "0.8.0", id, "0.9.0").unwrap_err().contains("version 0.8.0"));
+        assert!(mac::check_identity(id, "0.9.0.1", id, "0.9.0").is_err());
+
+        // Exactly one app at the top of the image.
+        let p = |s: &str| PathBuf::from(s);
+        let peek = [p("/v/Peek.app"), p("/v/Applications"), p("/v/.background")];
+        assert_eq!(mac::single_app(&peek), Ok(p("/v/Peek.app")));
+        assert!(mac::single_app(&[p("/v/Applications")]).unwrap_err().contains("no app"));
+        assert!(mac::single_app(&[p("/v/Peek.app"), p("/v/Other.APP")]).unwrap_err().contains("more than one"));
+    }
+
+    #[test]
+    fn mac_mount_and_bundle_paths() {
+        let root = Path::new("/Users/ada/Library/Caches/Peek/update/1-1/mnt");
+        let plist = r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>system-entities</key><array>
+<dict><key>content-hint</key><string>GUID_partition_scheme</string><key>dev-entry</key><string>/dev/disk9</string></dict>
+<dict><key>content-hint</key><string>Apple_HFS</string><key>dev-entry</key><string>/dev/disk9s1</string>
+<key>mount-point</key>
+	<string>/Users/ada/Library/Caches/Peek/update/1-1/mnt/dmg.Ab&amp;12</string><key>volume-kind</key><string>hfs</string></dict>
+</array></dict></plist>"#;
+        let (mount, device) = mac::attached(plist, root);
+        assert_eq!(mount, Some(root.join("dmg.Ab&12")));
+        assert_eq!(device.as_deref(), Some("/dev/disk9"));
+        // A mount point anywhere else is not the one Peek asked for.
+        let elsewhere = plist.replace("/Users/ada/Library/Caches/Peek/update/1-1/mnt/", "/Volumes/");
+        assert_eq!(mac::attached(&elsewhere, root).0, None);
+        assert_eq!(mac::attached("hdiutil: attach failed", root), (None, None));
+
+        let exe = Path::new("/Applications/Peek.app/Contents/MacOS/peek");
+        let app = mac::bundle_of(exe).unwrap();
+        assert_eq!(app, Path::new("/Applications/Peek.app"));
+        assert_eq!(mac::bundle_of(Path::new("/Applications/Peek.app/Contents/Resources/peek")), None);
+        assert_eq!(mac::bundle_of(Path::new("/Users/ada/src/peek/target/release/peek")), None);
+        assert_eq!(mac::staging_path(&app, 42), Path::new("/Applications/.Peek.app.update-42"));
+        assert_eq!(mac::backup_path(&app, 42), Path::new("/Applications/.Peek.app.old-42"));
+    }
+
+    /// A pretend Peek.app holding `marker`.
+    fn fake_app(path: &Path, marker: &str) {
+        std::fs::create_dir_all(path.join("Contents/MacOS")).unwrap();
+        std::fs::write(path.join("Contents/MacOS/peek"), marker).unwrap();
+        std::fs::write(path.join("Contents/Info.plist"), marker).unwrap();
+    }
+
+    fn marker(app: &Path) -> String {
+        std::fs::read_to_string(app.join("Contents/MacOS/peek")).unwrap()
+    }
+
+    #[test]
+    fn mac_bundle_swap_and_rollback() {
+        for atomic in [true, false] {
+            let dir = temp(if atomic { "bundle-exchange" } else { "bundle-renames" });
+            let app = dir.join("Peek.app");
+            let (staged, backup) = (mac::staging_path(&app, 7), mac::backup_path(&app, 7));
+            let names = || {
+                let mut n: Vec<String> =
+                    std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into()).collect();
+                n.sort();
+                n
+            };
+
+            // The new app in place, nothing else left next to it.
+            fake_app(&app, "old");
+            fake_app(&staged, "new");
+            mac::swap_bundle(&app, &staged, &backup, atomic).unwrap();
+            assert_eq!(marker(&app), "new");
+            assert_eq!(names(), ["Peek.app"]);
+
+            // A staged copy that is not there: the installed app stays, whole.
+            let err = mac::swap_bundle(&app, &staged, &backup, atomic).unwrap_err();
+            assert!(err.contains("cannot replace"), "{err}");
+            assert_eq!(marker(&app), "new");
+            assert_eq!(names(), ["Peek.app"]);
+
+            // Nothing installed to replace: the staged copy is removed, nothing is created.
+            std::fs::remove_dir_all(&app).unwrap();
+            fake_app(&staged, "newer");
+            assert!(mac::swap_bundle(&app, &staged, &backup, atomic).is_err());
+            assert!(names().is_empty(), "{:?}", names());
+
+            // Leftovers of updates that did not finish are found by name and process.
+            fake_app(&app, "new");
+            fake_app(&mac::staging_path(&app, 11), "half");
+            fake_app(&mac::backup_path(&app, 12), "old");
+            fake_app(&dir.join(".Other.app.update-13"), "other");
+            let mut found = mac::leftovers(&app);
+            found.sort();
+            assert_eq!(found, [(mac::backup_path(&app, 12), 12), (mac::staging_path(&app, 11), 11)]);
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_app_without_developer_id_is_not_replaced() {
+        let mock = Mock::start();
+        mock.publish("peek-macos-arm64.dmg", b"image", Some(&sha(b"image")), None);
+        let dir = temp("mac-unsigned");
+        let app = dir.join("Peek.app");
+        fake_app(&app, "old");
+        let plan = Plan {
+            kind: InstallKind::MacApp,
+            exe: app.join("Contents/MacOS/peek"),
+            work: dir.join("work"),
+            current: "0.5.0".into(),
+            probe: false,
+        };
+        let err = run(&mock, &plan).unwrap_err();
+        assert!(err.contains("not signed with a Developer ID"), "{err}");
+        assert_eq!(marker(&app), "old");
+        assert!(!plan.work.exists() && mac::leftovers(&app).is_empty());
+        // Classified from the same facts, it opens the disk image instead.
+        let facts = Facts::detect(&plan.exe);
+        assert_eq!(facts.team_id, None);
+        assert!(!facts.read_only_volume && facts.dir_writable);
         std::fs::remove_dir_all(dir).ok();
     }
 

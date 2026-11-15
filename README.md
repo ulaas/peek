@@ -44,8 +44,9 @@ Peek looks for a new version once a day, when it starts, and offers it in *About
 | Windows, MSI | Closes Peek, runs the new MSI (Windows asks for permission) and starts Peek again. If you decline, the previous version starts again and says so. |
 | Linux, `~/.local/bin/peek` or the unpacked archive | Replaces the `peek` binary in place and restarts. |
 | Linux, `.deb`, `.rpm` or AUR package | Nothing by itself: update with your package manager. Peek shows the release page. |
-| macOS | Downloads and checks the new disk image and opens it; quit Peek and drag the new one to Applications. |
-| Scoop, Homebrew | Nothing by itself: `scoop update peek` or `brew upgrade --cask peek`. |
+| macOS, Peek.app signed with a Developer ID (the release's) | Mounts the new disk image read-only and out of sight, and checks the Peek.app in it: the same bundle identifier, the release's version, a valid signature (`codesign --verify --deep --strict`) with a Developer ID of the same team as the running Peek, and notarized as far as Gatekeeper is concerned (`spctl`). Then copies it next to the installed one, swaps the two in one rename, deletes the previous one and restarts. If any step fails, the installed Peek stays as it was. |
+| macOS, any other Peek.app | Downloads and checks the new disk image and opens it; quit Peek and drag the new one to Applications. This is what happens when Peek runs where it was downloaded (macOS runs it from a temporary copy; move it to Applications first), from a disk image or another read-only disk, from a folder you cannot write to (Peek does not ask for an administrator's password), or when it is ad-hoc signed or unsigned, such as a copy you built yourself. |
+| Scoop, Homebrew | Nothing by itself: `scoop update peek` or `brew upgrade --cask peek`. On macOS a Peek.app that is a link into Homebrew's Caskroom counts as Homebrew's. |
 
 A copy in a folder Peek cannot write to, and a debug build, only point to the release page. Drafts and pre-releases are never offered.
 
@@ -90,6 +91,8 @@ scripts/package-macos.sh     # dist/peek-macos-arm64.dmg and .zip (Peek.app; ad-
 ```
 
 Set `MACOS_SIGN_IDENTITY` to a Developer ID Application identity to sign with it, and `MACOS_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize and staple the disk image as well. The release workflow packages every system with `scripts/package.sh`.
+
+To try an update end to end, build with `--features update-test-feed` (never used for a release): `PEEK_UPDATE_FEED=http://127.0.0.1:<port>/` then makes Peek read `repos/ulaas/peek/releases/latest` and the release files from a local server instead of GitHub, and `PEEK_UPDATE_TEST_AUTO=1` starts the update it finds.
 
 Releases: bump `version` in `Cargo.toml`, add a `## <version>` section to `CHANGELOG.md`, commit, then push a tag `v<version>`. `.github/workflows/release.yml` waits for CI (`.github/workflows/ci.yml`: fmt, clippy, tests on all three systems) to pass on that commit, then builds and publishes the release with that section as its notes. Running the workflow by hand from the Actions tab is a dry run that only uploads the packages as artifacts.
 

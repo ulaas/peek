@@ -2,6 +2,12 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
+## Unreleased
+
+### Changed
+
+- macOS: **Update and restart** replaces Peek.app in place, as on Windows and Linux, and asks first when sessions are open. The app in the new disk image must be Peek at the new version, signed with the same Developer ID team as the running Peek and notarized; it is copied next to the installed one and swapped in with one rename, so a failed update leaves the installed Peek as it was. A Peek run from its download location, from a disk image or read-only disk, from a folder you cannot write to, or one without a Developer ID signature still downloads, checks and opens the new disk image, and says why
+
 ## 0.6.4
 
 Peek for the Mac, ready to download.
