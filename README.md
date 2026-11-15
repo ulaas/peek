@@ -86,7 +86,7 @@ Building needs Rust 1.90+ and CMake (for the bundled Opus); on Linux also `libas
 macOS app and disk image (Apple silicon), on a Mac with the Xcode command line tools and `brew install cmake`:
 
 ```
-scripts/package-macos.sh     # dist/peek-macos-arm64.dmg and .zip (Peek.app, ad-hoc signed)
+scripts/package-macos.sh     # dist/peek-macos-arm64.dmg and .zip (Peek.app; ad-hoc signed unless MACOS_SIGN_IDENTITY is set)
 ```
 
 Set `MACOS_SIGN_IDENTITY` to a Developer ID Application identity to sign with it, and `MACOS_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize and staple the disk image as well. The release workflow packages every system with `scripts/package.sh`.

@@ -27,6 +27,8 @@ env:
   # binaries do not depend on a system libopus.
   OPUS_BUNDLED: "1"
   OPUS_STATIC: "1"
+  # The Mac binary runs on macOS 11 and later, as Info.plist says (ignored by other targets).
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
 
 jobs:
   # Waits for ci.yml on the same commit, so the commit and the tag can be pushed together: the
@@ -82,6 +84,9 @@ jobs:
           - { name: peek-linux-x64, os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
           - { name: peek-macos-arm64, os: macos-latest, target: aarch64-apple-darwin }
     runs-on: ${{ matrix.os }}
+    env:
+      # secrets can't be read in step conditions; this can.
+      HAS_MACOS_SIGNING: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
     defaults:
       run:
         shell: bash
@@ -130,8 +135,52 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p peek --target ${{ matrix.target }}
 
+      # Developer ID signing and notarization when the repository has the secrets (forks and
+      # pull requests don't); without them the app is signed ad hoc. The certificate and an App
+      # Store Connect API key go into a temporary keychain, as the notarytool profile ci-notary.
+      - name: Import the Developer ID certificate and the notary key
+        if: runner.os == 'macOS' && env.HAS_MACOS_SIGNING == 'true'
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_CODESIGN_IDENTITY }}
+          NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          kc_pw="$(uuidgen)"
+          security create-keychain -p "$kc_pw" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kc_pw" "$kc"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_pw" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$kc" | grep -qF "$IDENTITY"
+          printf '%s\n' "$NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials ci-notary --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --keychain "$kc"
+          rm -f "$RUNNER_TEMP/notary.p8"
+          {
+            echo "MACOS_SIGN_IDENTITY=$IDENTITY"
+            echo "MACOS_NOTARY_PROFILE=ci-notary"
+          } >> "$GITHUB_ENV"
+
       - name: Package
         run: bash scripts/package.sh ${{ matrix.target }} ${{ matrix.name }}
+
+      - name: Gatekeeper accepts the notarized disk image
+        if: runner.os == 'macOS' && env.HAS_MACOS_SIGNING == 'true'
+        shell: bash
+        run: spctl --assess --type open --context context:primary-signature --verbose=2 "dist/${{ matrix.name }}.dmg"
+      - name: Remove the temporary keychain
+        if: always() && runner.os == 'macOS' && env.HAS_MACOS_SIGNING == 'true'
+        shell: bash
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
 
       - uses: actions/upload-artifact@v4
         with:
