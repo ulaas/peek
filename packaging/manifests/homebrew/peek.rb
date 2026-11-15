@@ -21,7 +21,11 @@ cask "peek" do
 
   # Settings, library and known hosts (directories::ProjectDirs "dev", "Peek", "Peek").
   # Recordings in ~/Movies/Peek are left alone.
-  zap trash: "~/Library/Application Support/dev.Peek.Peek"
+  zap trash: [
+    "~/Library/Application Support/dev.Peek.Peek",
+    "~/Library/Caches/Peek",
+    "~/Library/Logs/Peek",
+  ]
 
   caveats <<~EOS
     Peek is not notarized yet. If macOS blocks the first launch, run:

@@ -110,9 +110,18 @@ pub fn reveal_file(path: &std::path::Path) {
     }
 }
 
-/// Where Peek writes its log: %LOCALAPPDATA%\Peek\logs (or ~/.local/state/peek/logs).
+/// Where Peek writes its log: %LOCALAPPDATA%\Peek\logs, ~/Library/Logs/Peek on macOS
+/// (where Console finds it), or ~/.local/state/peek/logs.
 pub fn log_dir() -> Option<std::path::PathBuf> {
-    state_dir().map(|d| d.join("logs"))
+    if cfg!(target_os = "macos") {
+        home().map(|h| h.join("Library/Logs/Peek"))
+    } else {
+        state_dir().map(|d| d.join("logs"))
+    }
+}
+
+fn home() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
 /// Peek's own folder for local state: %LOCALAPPDATA%\Peek (or ~/.local/state/peek).
@@ -120,13 +129,17 @@ fn state_dir() -> Option<std::path::PathBuf> {
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         return Some(std::path::PathBuf::from(local).join("Peek"));
     }
-    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/state/peek"))
+    home().map(|h| h.join(".local/state/peek"))
 }
 
 /// Where a downloaded update waits until it is installed: next to the logs,
-/// in a folder only this user writes to.
+/// in a folder only this user writes to (~/Library/Caches/Peek on macOS).
 pub fn update_dir() -> Option<std::path::PathBuf> {
-    state_dir().map(|d| d.join("update"))
+    if cfg!(target_os = "macos") {
+        home().map(|h| h.join("Library/Caches/Peek/update"))
+    } else {
+        state_dir().map(|d| d.join("update"))
+    }
 }
 
 pub fn safe_file_name(s: &str) -> String {
