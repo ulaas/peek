@@ -2,6 +2,23 @@
 
 The release workflow publishes the section for the tag being released as its notes.
 
+## 0.6.4
+
+Peek for the Mac, ready to download.
+
+### Changed
+
+- macOS: the disk image is signed with a Developer ID and notarized by Apple, so Peek opens without a warning. It is built for Apple silicon and runs on macOS 11 and later
+- macOS: the window has the Mac's own frame. The traffic lights sit in Peek's title bar, and resizing, zoom and full screen are the system's
+- macOS: double-clicking a `.peekrec` recording in Finder opens it in Peek, and Peek is offered under Open With for `.rdp` files
+- macOS: the log is in `~/Library/Logs/Peek` and update downloads in `~/Library/Caches/Peek`
+- macOS: shortcut hints say Cmd, and Ctrl+Tab also goes to the next tab, because Cmd+Tab switches apps
+- macOS: Peek says why it asks for local network access, which macOS 15 and later ask about before it reaches a computer on your network
+
+### Fixed
+
+- macOS: in an RDP session Cmd is sent as Ctrl, so Cmd+C, Cmd+V and Cmd+X copy, paste and cut on the remote computer. Before, Cmd was the Windows key, so Cmd+V opened the clipboard history
+
 ## 0.6.3
 
 ### Fixed
