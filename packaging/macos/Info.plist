@@ -11,9 +11,62 @@
   <key>CFBundleShortVersionString</key><string>@VERSION@</string>
   <key>CFBundleVersion</key><string>@VERSION@</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSArchitecturePriority</key><array><string>arm64</string></array>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHumanReadableCopyright</key><string>MIT OR Apache-2.0</string>
+  <!-- macOS 15 asks before an app reaches computers on the local network (RDP, VNC, Wake-on-LAN). -->
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Peek connects to the remote computers you choose on your network and can wake them with Wake-on-LAN.</string>
+
+  <!-- The same files as on Windows and Linux: Peek's own recordings, and .rdp files
+       (offered under Open With, without taking them over from another RDP client). -->
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>io.github.ulaas.peek.recording</string>
+      <key>UTTypeDescription</key><string>Peek recording</string>
+      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+      <key>UTTypeIconFile</key><string>peek</string>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>peekrec</string></array>
+        <key>public.mime-type</key><array><string>application/x-peek-recording</string></array>
+      </dict>
+    </dict>
+  </array>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.microsoft.rdp</string>
+      <key>UTTypeDescription</key><string>Remote Desktop file</string>
+      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>rdp</string></array>
+        <key>public.mime-type</key><array><string>application/x-rdp</string></array>
+      </dict>
+    </dict>
+  </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Peek recording</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>CFBundleTypeIconFile</key><string>peek</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key><array><string>io.github.ulaas.peek.recording</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Remote Desktop file</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key><array><string>com.microsoft.rdp</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>

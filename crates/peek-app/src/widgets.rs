@@ -521,7 +521,7 @@ pub fn tab_chip(ui: &mut Ui, id: Id, title: &str, dot: Color32, selected: bool, 
         let x = ui
             .interact(xr, id.with("x"), Sense::click())
             .on_hover_cursor(CursorIcon::PointingHand)
-            .on_hover_text("Close (Ctrl+W)");
+            .on_hover_text(format!("Close ({}W)", crate::util::CMD));
         let xt = hover_t(ui, x.id, x.hovered());
         p.rect_filled(xr, CornerRadius::same(5), hover_fill(ui).gamma_multiply(1.6 * xt));
         let c = lerp_color(v.weak_text_color(), v.text_color(), xt).gamma_multiply(0.4 + 0.6 * t.max(sel));

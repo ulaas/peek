@@ -58,6 +58,10 @@ pub fn ago(unix: u64) -> String {
     }
 }
 
+/// How shortcut hints name the Command key: Ctrl on Windows and Linux, Cmd on a Mac
+/// (egui's `Modifiers::COMMAND` is the one or the other).
+pub const CMD: &str = if cfg!(target_os = "macos") { "Cmd+" } else { "Ctrl+" };
+
 /// Open a file with its default application.
 pub fn open_file(path: &std::path::Path) {
     #[cfg(windows)]

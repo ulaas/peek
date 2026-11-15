@@ -5,6 +5,8 @@ mod grab;
 mod icons;
 mod keymap;
 mod logo;
+#[cfg(target_os = "macos")]
+mod macos;
 mod mark;
 mod player;
 mod theme;
@@ -70,20 +72,44 @@ fn main() -> eframe::Result {
         .build()
         .expect("tokio runtime");
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Peek")
-            .with_app_id("peek")
-            .with_inner_size([1360.0, 860.0])
-            .with_min_inner_size([720.0, 480.0])
-            // Peek draws its own title bar (see app::top_bar).
-            .with_decorations(false)
-            .with_icon(logo::icon_data()),
-        ..Default::default()
-    };
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("Peek")
+        .with_app_id("peek")
+        .with_inner_size([1360.0, 860.0])
+        .with_min_inner_size([720.0, 480.0])
+        .with_icon(logo::icon_data());
+    // Peek draws its own title bar (see app::top_bar). On macOS the window keeps its native
+    // frame (traffic lights, edge resizing, full screen, Mission Control), with the title bar
+    // made transparent and the content drawn underneath it.
+    #[cfg(not(target_os = "macos"))]
+    let viewport = viewport.with_decorations(false);
+    #[cfg(target_os = "macos")]
+    let viewport = viewport.with_fullsize_content_view(true).with_title_shown(false).with_titlebar_shown(false);
+    let options = eframe::NativeOptions { viewport, ..Default::default() };
 
     let handle = rt.handle().clone();
     // `peek <address>` connects right away; `peek file.peekrec` plays a recording.
     let arg = std::env::args().nth(1);
-    eframe::run_native("Peek", options, Box::new(move |cc| Ok(Box::new(app::PeekApp::new(cc, handle, arg)))))
+    let creator: eframe::AppCreator<'_> = Box::new(move |cc| {
+        #[cfg(target_os = "macos")]
+        macos::set_context(&cc.egui_ctx);
+        Ok(Box::new(app::PeekApp::new(cc, handle, arg)))
+    });
+    run(options, creator)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run(options: eframe::NativeOptions, creator: eframe::AppCreator<'_>) -> eframe::Result {
+    eframe::run_native("Peek", options, creator)
+}
+
+/// macOS: the event loop is created here, so that files opened from Finder can be received
+/// (see macos.rs) before it starts.
+#[cfg(target_os = "macos")]
+fn run(options: eframe::NativeOptions, creator: eframe::AppCreator<'_>) -> eframe::Result {
+    let event_loop = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    macos::install_open_handler();
+    let mut app = eframe::create_native("Peek", options, creator, &event_loop);
+    event_loop.run_app(&mut app)?;
+    Ok(())
 }

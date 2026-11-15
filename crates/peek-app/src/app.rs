@@ -282,6 +282,9 @@ fn about_copy_text(facts: &[(&'static str, String)]) -> String {
     )
 }
 
+/// Room the native macOS window buttons take at the left end of the title bar.
+const MAC_TRAFFIC_LIGHTS_WIDTH: f32 = 70.0;
+
 fn window_border(ctx: &egui::Context) {
     if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
         return;
@@ -362,13 +365,19 @@ impl PeekApp {
         }
         // Started with a file or address: that tab gets the keyboard, not quick connect.
         app.focus_quick = arg.is_none();
-        match arg {
-            Some(a) if a.to_lowercase().ends_with(".peekrec") => app.open_recording(PathBuf::from(a)),
-            Some(a) if a.to_lowercase().ends_with(".rdp") => app.import_rdp(std::path::Path::new(&a)),
-            Some(a) => app.quick_connect(&cc.egui_ctx, &a),
-            None => {}
+        if let Some(a) = arg {
+            app.open_arg(&cc.egui_ctx, a);
         }
         app
+    }
+
+    /// A recording to play, an `.rdp` file to import, or an address to connect to.
+    fn open_arg(&mut self, ctx: &egui::Context, a: String) {
+        match a {
+            a if a.to_lowercase().ends_with(".peekrec") => self.open_recording(PathBuf::from(a)),
+            a if a.to_lowercase().ends_with(".rdp") => self.import_rdp(std::path::Path::new(&a)),
+            a => self.quick_connect(ctx, &a),
+        }
     }
 
     fn toast(&mut self, text: impl Into<String>, kind: ToastKind) {
@@ -944,7 +953,7 @@ impl PeekApp {
     /// Custom title bar: logo, tabs, a drag area, quick connect, settings and
     /// the window buttons. Dragging the empty space moves the window (with
     /// Windows snapping); double-click maximizes.
-    fn top_bar(&mut self, ui: &mut egui::Ui) {
+    fn top_bar(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut close = None;
         let mut toggle_audio = None;
@@ -962,6 +971,11 @@ impl PeekApp {
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
+                    // macOS: the native traffic lights sit at the left end of the bar.
+                    if cfg!(target_os = "macos") {
+                        frame.set_traffic_lights_position(&ctx, egui::Rangef::new(0.0, height), 14.0);
+                        ui.add_space(MAC_TRAFFIC_LIGHTS_WIDTH);
+                    }
                     let (rect, logo) = ui.allocate_exact_size(Vec2::splat(24.0), egui::Sense::click());
                     let hover = ui.ctx().animate_bool_with_time(logo.id, logo.hovered(), 0.12);
                     let r = rect.expand(hover);
@@ -1012,25 +1026,28 @@ impl PeekApp {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
                         let size = Vec2::new(46.0, height);
-                        if widgets::window_button(ui, widgets::WindowButton::Close, size)
-                            .on_hover_text("Close")
-                            .clicked()
-                        {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        let (kind, tip) = if maximized {
-                            (widgets::WindowButton::Restore, "Restore")
-                        } else {
-                            (widgets::WindowButton::Maximize, "Maximize")
-                        };
-                        if widgets::window_button(ui, kind, size).on_hover_text(tip).clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-                        }
-                        if widgets::window_button(ui, widgets::WindowButton::Minimize, size)
-                            .on_hover_text("Minimize")
-                            .clicked()
-                        {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        // On macOS the traffic lights close, minimize and zoom.
+                        if !cfg!(target_os = "macos") {
+                            if widgets::window_button(ui, widgets::WindowButton::Close, size)
+                                .on_hover_text("Close")
+                                .clicked()
+                            {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                            let (kind, tip) = if maximized {
+                                (widgets::WindowButton::Restore, "Restore")
+                            } else {
+                                (widgets::WindowButton::Maximize, "Maximize")
+                            };
+                            if widgets::window_button(ui, kind, size).on_hover_text(tip).clicked() {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+                            }
+                            if widgets::window_button(ui, widgets::WindowButton::Minimize, size)
+                                .on_hover_text("Minimize")
+                                .clicked()
+                            {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                            }
                         }
                         ui.add_space(10.0);
                         ui.spacing_mut().item_spacing.x = 6.0;
@@ -1041,7 +1058,7 @@ impl PeekApp {
                             "Settings",
                             self.settings_open,
                         )
-                        .on_hover_text("Settings (Ctrl+,)")
+                        .on_hover_text(format!("Settings ({},)", util::CMD))
                         .clicked()
                         {
                             cmd = Some(Command::Settings);
@@ -1053,7 +1070,7 @@ impl PeekApp {
                                     ui,
                                     &mut self.quick,
                                     icons::LIGHTNING,
-                                    "Connect to…   Ctrl+L",
+                                    &format!("Connect to…   {}L", util::CMD),
                                     egui::Id::unique("quick-top"),
                                     13.0,
                                     30.0,
@@ -1231,7 +1248,8 @@ impl PeekApp {
                         ui.label(RichText::new(total.to_string()).size(12.0).weak());
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if widgets::icon_button(ui, icons::PLUS, "New connection (Ctrl+N)").clicked() {
+                        if widgets::icon_button(ui, icons::PLUS, &format!("New connection ({}N)", util::CMD)).clicked()
+                        {
                             cmd = Some(Command::NewConnection);
                         }
                     });
@@ -1398,7 +1416,7 @@ impl PeekApp {
                         "Settings",
                         self.settings_open,
                     )
-                    .on_hover_text("Ctrl+,")
+                    .on_hover_text(format!("{},", util::CMD))
                     .clicked()
                     {
                         cmd = Some(Command::Settings);
@@ -2293,7 +2311,10 @@ impl PeekApp {
                 cmd = Some(4);
             } else if i.consume_shortcut(&sc(Modifiers::NONE, Key::F11)) {
                 cmd = Some(5);
-            } else if i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Tab)) {
+            } else if i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Tab))
+                // On a Mac, Cmd+Tab belongs to the app switcher: Ctrl+Tab, as in Safari.
+                || (cfg!(target_os = "macos") && i.consume_shortcut(&sc(Modifiers::CTRL, Key::Tab)))
+            {
                 cmd = Some(6);
             } else if i.consume_shortcut(&sc(Modifiers::COMMAND, Key::Comma)) {
                 cmd = Some(7);
@@ -2324,9 +2345,14 @@ impl eframe::App for PeekApp {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         #[cfg(windows)]
         crate::util::window_background(frame, ui.ctx().global_style().visuals.panel_fill);
-        #[cfg(not(windows))]
-        let _ = frame;
         let ctx = ui.ctx().clone();
+
+        // Files double-clicked in Finder or dropped on the Dock icon.
+        #[cfg(target_os = "macos")]
+        for a in crate::macos::take_opened() {
+            self.focus_quick = false;
+            self.open_arg(&ctx, a);
+        }
 
         // Backend events for every session, visible or not.
         let mut actions = Vec::new();
@@ -2396,7 +2422,7 @@ impl eframe::App for PeekApp {
         self.window_focused = window_focused;
 
         if !self.fullscreen {
-            self.top_bar(ui);
+            self.top_bar(ui, frame);
             self.sidebar(ui);
         }
 
@@ -2429,7 +2455,8 @@ impl eframe::App for PeekApp {
         self.about_window(&ctx);
         self.dialogs(&ctx);
         self.toasts(&ctx);
-        if !self.fullscreen {
+        // The native macOS frame resizes the window and draws its edge itself.
+        if !self.fullscreen && !cfg!(target_os = "macos") {
             self.edge_resize(&ctx);
             window_border(&ctx);
         }
